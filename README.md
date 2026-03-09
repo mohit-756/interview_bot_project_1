@@ -1,245 +1,221 @@
-Perfect 🔥
-You’ve built a **serious AI system**, so your GitHub README should look professional and impressive.
+# AI Interview Platform
 
-Below is a clean, strong, FAANG-level README text you can directly paste into GitHub.
+An AI-driven interview platform with:
+- FastAPI backend (API-only, session-based auth)
+- React + Vite frontend
+- Resume/JD matching
+- Timed interview sessions with webcam proctoring
 
----
+## Current Architecture
 
-# 🚀 AI Interview Platform (Berribot-Style)
+This project is now split into:
 
-An AI-powered, real-time technical interview simulation platform that conducts dynamic, time-bound interviews based on the candidate’s resume and job description.
+1. Backend (`main.py`, `routes/api_routes.py`)
+- Serves JSON APIs under `/api/*`
+- Handles authentication, candidate workflow, HR workflow, and interview flow
+- Stores data in SQLite by default (`app.db`)
 
-This system behaves like an intelligent FAANG-style interviewer — asking adaptive follow-up questions, analyzing silence, shifting phases automatically, and managing interview timing in real time.
+2. Frontend (`interview-frontend/`)
+- React app served by Vite
+- Uses Vite proxy to call backend APIs
+- Includes candidate dashboard, HR dashboard, and interview flow (`/interview/:resultId`)
 
----
+## Key Features
 
-## 🧠 Key Features
+- Candidate and HR signup/login
+- Candidate can:
+  - Select company/JD
+  - Upload resume for selected JD
+  - View score and explanation
+  - Schedule interview and receive interview link
+- HR can:
+  - Upload multiple JDs
+  - Give custom JD title
+  - Review and update skill weights per selected JD
+  - Configure per-JD shortlist cutoff score
+  - Configure per-JD interview question count
+  - View shortlisted candidates
+- Resume scoring is local, deterministic, and includes an explainable score breakdown
+- Interview question bank generation:
+  - Built automatically per application from resume + JD
+  - 80% project/deep-dive style prompts
+  - 20% self-introduction + theory prompts
+  - Project question distribution follows HR-defined JD skill weights
+- Interview flow:
+  - Candidate-authenticated pre-check and timed live interview
+  - Per-question timer with auto-skip on timeout
+  - Webcam-based proctoring with baseline and periodic/suspicious captures
+  - HR review of answers and proctoring timeline
 
-### 🎯 Resume + JD Based Dynamic Questioning
+## Environment Variables
 
-* Extracts resume and job description content
-* Generates intelligent, context-aware questions
-* Covers:
+Create `.env` in project root:
 
-  * Academic background
-  * Work experience
-  * Projects
-  * System design
-  * Behavioral round
+```env
+DATABASE_URL=sqlite:///./app.db
+SECRET_KEY=replace_with_a_long_random_secret
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 
----
+# Whisper STT (live transcription) configuration:
+WHISPER_MODEL_SIZE=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+WHISPER_BEAM_SIZE=1
+WHISPER_VAD_FILTER=true
+# Optional: local path to a pre-downloaded faster-whisper model directory.
+# If set, this overrides WHISPER_MODEL_SIZE.
+WHISPER_MODEL_PATH=
+# Optional: set true to ignore HTTP(S)_PROXY env vars during model load.
+WHISPER_IGNORE_PROXY=false
 
-### 🔁 Anti-Repetition Engine
+# Required for interview email sending:
+EMAIL_ADDRESS=
+EMAIL_PASSWORD=
 
-* Strict duplicate prevention
-* Semantic comparison against previous questions
-* AI instructed to never repeat similar variations
-* Fallback protection logic included
-
----
-
-### ⏳ Live Countdown Timer
-
-* Real-time front-end countdown
-* Auto ends interview when time expires
-* Dynamic color transitions (Warning → Danger)
-
----
-
-### 🎤 Voice-Based Interaction
-
-* Speech-to-text for capturing answers
-* Text-to-speech for asking questions
-* Auto-detect silence
-* Auto-move to next question if:
-
-  * Candidate stops speaking
-  * Candidate remains silent
-  * Hard per-question timeout triggers
-
----
-
-### 🧩 Adaptive Interview Flow (State Machine)
-
-The interview follows a structured phase engine:
-
-1. Introduction (fixed first question)
-2. Resume Clarification
-3. Work Experience Deep Dive
-4. Project Deep Dive
-5. System Design
-6. HR / Behavioral
-
-Automatically shifts based on:
-
-* Time remaining
-* Depth covered
-* Silence detection
-
----
-
-### ⚡ Time-Optimized Question Strategy
-
-* If total interview is 2 minutes → rapid-fire questions
-* If longer interview → deeper follow-ups
-* Adjusts difficulty based on:
-
-  * Candidate answer
-  * Remaining time
-  * Current interview phase
-
----
-
-## 🏗 Tech Stack
-
-### Backend
-
-* FastAPI
-* SQLAlchemy
-* Groq LLM (Llama 3.1)
-* Sentence Transformers
-* Session-based state engine
-
-### Frontend
-
-* HTML + Jinja
-* Web Speech API
-* Speech Recognition API
-* Live countdown system
-* Camera + microphone integration
-
----
-
-## 🧠 AI Intelligence Layer
-
-The system uses:
-
-* Context-aware prompt engineering
-* Stage-based questioning strategy
-* Deep drilling follow-up logic
-* Anti-duplicate semantic guardrails
-* Time-sensitive question generation
-
----
-
-## 🔄 Interview Flow Logic
-
-```
-Start Interview
-    ↓
-Intro Question
-    ↓
-Resume-based Questions
-    ↓
-Experience Deep Dive
-    ↓
-Project Architecture Drill
-    ↓
-System Design Challenges
-    ↓
-HR Round
-    ↓
-Auto Interview Completion
+# Optional frontend URL used in interview links sent by email:
+FRONTEND_URL=http://localhost:5173
 ```
 
----
+Notes:
+- For Gmail, `EMAIL_PASSWORD` must be an App Password (not your normal account password).
+- The default local Whisper model is `small` for better CPU performance.
+- Use `medium` on stronger machines; treat `large-v3` as an opt-in quality upgrade.
+- First transcription call downloads the selected Whisper model, so startup can be slow.
+- If download fails due proxy/network, set `WHISPER_MODEL_PATH` to a local model folder.
 
-## 🛡 Robust Controls
+## Installation
 
-* Auto end on timeout
-* Silence handling
-* Per-question time cap
-* Backend time validation
-* Session reset protection
-* Duplicate prevention layer
+### 1. Backend
 
----
-
-## 📂 Project Structure
-
-```
-AI_Interview_Platform/
-│
-├── routes/
-│   ├── interview.py
-│   ├── candidate.py
-│   └── hr.py
-│
-├── ai_engine/
-│   ├── question_generator.py
-│   └── matching.py
-│
-├── templates/
-│   ├── interview.html
-│   └── base.html
-│
-├── models.py
-├── database.py
-├── main.py
-└── README.md
-```
-
----
-
-## 🧪 Future Improvements (Planned)
-
-* Emotion detection
-* Confidence scoring
-* Resume scoring system
-* AI feedback report generation
-* Performance analytics dashboard
-* Multi-role interview modes
-* Interview recording & playback
-* Admin interview analytics panel
-
----
-
-## 📌 What Makes This Unique?
-
-Unlike basic chatbot interviews:
-
-* Fully timed system
-* Berribot-style structured flow
-* Automatic silence handling
-* Deep project drilling
-* Dynamic question shifting
-* Production-like interviewer behavior
-
----
-
-## 💡 Use Cases
-
-* College placement preparation
-* Technical interview practice
-* Hiring automation
-* Resume-based screening
-* AI-powered mock interviews
-
----
-
-## ⚙ Setup
-
-1. Clone repository
-2. Create `.env` with:
-
-```
-GROQ_API_KEY=your_key_here
-```
-
-3. Install dependencies
-
-```
+```powershell
+cd C:\Users\mohit\Documents\interview_bot_project
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-4. Run
+### 2. Frontend
 
+```powershell
+cd C:\Users\mohit\Documents\interview_bot_project\interview-frontend
+npm install
 ```
-uvicorn main:app --reload
+
+## Run Locally
+
+Open two terminals.
+
+### Terminal A: Backend
+
+```powershell
+cd C:\Users\mohit\Documents\interview_bot_project
+.\venv\Scripts\Activate.ps1
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
----
+Health check:
 
-## 🧑‍💻 Author
+```text
+http://127.0.0.1:8000/health
+```
 
-Built as an advanced AI Interview Automation System for scalable hiring simulation and interview preparation.
+### Terminal B: Frontend
+
+```powershell
+cd C:\Users\mohit\Documents\interview_bot_project\interview-frontend
+npm run dev
+```
+
+Frontend URL:
+
+```text
+http://localhost:5173
+```
+
+## API Overview
+
+Main router: `routes/api_routes.py`
+
+Auth:
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+Candidate:
+- `GET /api/candidate/dashboard`
+- `POST /api/candidate/upload-resume`
+- `POST /api/candidate/select-interview-date`
+
+HR:
+- `GET /api/hr/dashboard`
+- `GET /api/hr/jobs`
+- `POST /api/hr/upload-jd`
+- `POST /api/hr/confirm-jd`
+- `POST /api/hr/update-skill-weights` (also updates JD cutoff/question count)
+
+Interview:
+- `POST /api/interview/start`
+- `POST /api/interview/answer`
+- `POST /api/proctor/frame`
+- `GET /api/hr/proctoring/{session_id}`
+
+## Project Structure
+
+```text
+interview_bot_project/
+|-- ai_engine/
+|   |-- phase1/
+|   |   |-- matching.py
+|   |   `-- scoring.py
+|   |-- phase2/
+|   |   `-- question_builder.py
+|   `-- phase3/
+|       `-- question_flow.py
+|-- docs/
+|   `-- PHASE_MAP.md
+|-- interview-frontend/
+|   `-- src/
+|-- routes/
+|   |-- api_routes.py
+|   |-- auth/
+|   |   `-- sessions.py
+|   |-- candidate/
+|   |   `-- workflow.py
+|   |-- hr/
+|   |   |-- management.py
+|   |   `-- interview_review.py
+|   `-- interview/
+|       `-- runtime.py
+|-- tests/
+|-- utils/
+|-- auth.py
+|-- database.py
+|-- main.py
+|-- models.py
+`-- requirements.txt
+```
+
+Phase-wise explanation map: `docs/PHASE_MAP.md`.
+
+## Troubleshooting
+
+1. `ECONNREFUSED 127.0.0.1:8000` in Vite logs
+- Backend is not running or crashed.
+- Restart backend and verify `http://127.0.0.1:8000/health`.
+
+2. Interview page shows request failures
+- Ensure backend is running.
+- Login as candidate and open the interview link from dashboard.
+
+3. No interview email received
+- Check `EMAIL_ADDRESS` and `EMAIL_PASSWORD` in `.env`.
+- Verify Gmail App Password usage.
+- Check spam/promotions folder.
+
+## Notes
+
+- Backend includes a lightweight schema backfill at startup for `jobs.jd_title` if missing.
+- Session cookies are required for authenticated APIs.
+- Uploaded files are saved under `uploads/`.
