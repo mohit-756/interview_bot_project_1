@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlertCircle,
@@ -12,16 +12,37 @@ import {
   Target,
   XCircle,
   Zap,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
+import { hrApi } from "../services/api";
 import { mockCandidates } from "../data/mockData";
 import { cn } from "../utils/utils";
 
 export default function HRCandidateDetailPage() {
   const { candidateUid } = useParams();
   const [activeTabId, setActiveTabId] = useState("resume");
+  const [skillGapData, setSkillGapData] = useState(null);
+  const [loadingSkillGap, setLoadingSkillGap] = useState(false);
 
   const candidate = mockCandidates.find((entry) => entry.uid === candidateUid) || mockCandidates[0];
+
+  // Load skill gap data on mount
+  useEffect(() => {
+    async function loadSkillGap() {
+      setLoadingSkillGap(true);
+      try {
+        const response = await hrApi.candidateSkillGap(candidateUid || candidate.uid, 1);
+        setSkillGapData(response.skill_gap);
+      } catch (error) {
+        console.error("Failed to load skill gap:", error);
+      } finally {
+        setLoadingSkillGap(false);
+      }
+    }
+    loadSkillGap();
+  }, [candidateUid, candidate.uid]);
 
   const tabs = [
     { id: "resume", label: "Resume Analysis", icon: Briefcase },
@@ -169,6 +190,74 @@ export default function HRCandidateDetailPage() {
                   </ul>
                 </div>
               </div>
+
+              {/* Skill Gap Section */}
+              {skillGapData && (
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="flex items-center justify-between mb-8">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center">
+                      <TrendingUp className="text-blue-600 mr-2" size={24} />
+                      Skill Gap Analysis
+                    </h3>
+                    <div className="text-right">
+                      <span className="text-4xl font-black text-green-600">{skillGapData.match_percentage}%</span>
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Match Score</p>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-8">
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center">
+                        <CheckCircle2 className="text-emerald-500 mr-2" size={18} />
+                        Matched Skills
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {skillGapData.matched_skills?.map((skill) => (
+                          <span
+                            key={skill}
+                            className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-bold border border-emerald-100 dark:border-emerald-800/50"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center">
+                        <XCircle className="text-red-500 mr-2" size={18} />
+                        Missing Skills
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {skillGapData.missing_skills?.map((skill) => (
+                          <span
+                            key={skill}
+                            className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-xs font-bold border border-red-100 dark:border-red-800/50"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {skillGapData.recommendations && skillGapData.recommendations.length > 0 && (
+                    <div className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-800">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-4 flex items-center">
+                        <TrendingDown className="text-blue-600 mr-2" size={18} />
+                        Recommendations
+                      </h4>
+                      <ul className="space-y-3">
+                        {skillGapData.recommendations.map((rec, idx) => (
+                          <li key={idx} className="flex items-start text-sm text-slate-600 dark:text-slate-300">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 mr-3 flex-shrink-0" />
+                            {rec}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <div className="bg-white dark:bg-slate-900 p-12 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
