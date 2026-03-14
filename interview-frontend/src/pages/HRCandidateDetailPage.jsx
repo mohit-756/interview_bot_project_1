@@ -11,6 +11,7 @@ import {
   Mail,
   Target,
   XCircle,
+  X,
   Zap,
   TrendingUp,
   TrendingDown,
@@ -25,6 +26,13 @@ export default function HRCandidateDetailPage() {
   const [activeTabId, setActiveTabId] = useState("resume");
   const [skillGapData, setSkillGapData] = useState(null);
   const [loadingSkillGap, setLoadingSkillGap] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleData, setScheduleData] = useState({
+    date: "",
+    time: "",
+    roundType: "technical",
+  });
+  const [scheduling, setScheduling] = useState(false);
 
   const candidate = mockCandidates.find((entry) => entry.uid === candidateUid) || mockCandidates[0];
 
@@ -44,6 +52,62 @@ export default function HRCandidateDetailPage() {
     loadSkillGap();
   }, [candidateUid, candidate.uid]);
 
+  const handleDownloadPDF = () => {
+    // Create a simple PDF-like content
+    const pdfContent = `
+CANDIDATE PROFILE REPORT
+========================
+
+Name: ${candidate.name}
+Email: ${candidate.email}
+Phone: ${candidate.phone}
+Location: ${candidate.location}
+Current Role: ${candidate.currentRole}
+
+QUALIFICATIONS:
+- Experience: ${candidate.experience} years
+- Education: ${candidate.education}
+- Technical Skills: ${candidate.technicalSkills.join(", ")}
+
+INTERVIEW SUMMARY:
+- Total Interviews: ${candidate.totalInterviews || 0}
+- Final Decision: ${candidate.finalDecision}
+
+Generated on: ${new Date().toLocaleDateString()}
+    `;
+
+    const blob = new Blob([pdfContent], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${candidate.name.replace(/\s+/g, "_")}_profile.txt`;
+    document.body.appendChild(link);
+    link.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(link);
+  };
+
+  const handleScheduleSubmit = async (e) => {
+    e.preventDefault();
+    if (!scheduleData.date || !scheduleData.time) {
+      alert("Please select both date and time");
+      return;
+    }
+
+    setScheduling(true);
+    try {
+      // Simulate API call for scheduling
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      alert(`Interview scheduled for ${scheduleData.date} at ${scheduleData.time}`);
+      setShowScheduleModal(false);
+      setScheduleData({ date: "", time: "", roundType: "technical" });
+    } catch (error) {
+      alert("Failed to schedule interview");
+    } finally {
+      setScheduling(false);
+    }
+  };
+
   const tabs = [
     { id: "resume", label: "Resume Analysis", icon: Briefcase },
     { id: "interview", label: "Interview Rounds", icon: Calendar },
@@ -60,11 +124,17 @@ export default function HRCandidateDetailPage() {
           <span>Back to Candidates</span>
         </Link>
         <div className="flex items-center gap-3">
-          <button className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center space-x-2">
+          <button
+            onClick={handleDownloadPDF}
+            className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center space-x-2"
+          >
             <Download size={20} />
             <span>Download PDF</span>
           </button>
-          <button className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none">
+          <button
+            onClick={() => setShowScheduleModal(true)}
+            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none"
+          >
             Schedule Next Round
           </button>
         </div>
@@ -316,6 +386,89 @@ export default function HRCandidateDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Schedule Next Round Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full mx-4">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-800">
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+                Schedule Next Round
+              </h2>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleScheduleSubmit} className="p-6 space-y-4">
+              {/* Round Type */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-900 dark:text-white">
+                  Round Type
+                </label>
+                <select
+                  value={scheduleData.roundType}
+                  onChange={(e) => setScheduleData({ ...scheduleData, roundType: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                >
+                  <option value="technical">Technical Round</option>
+                  <option value="hr">HR Round</option>
+                  <option value="final">Final Round</option>
+                </select>
+              </div>
+
+              {/* Date */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-900 dark:text-white">
+                  Date *
+                </label>
+                <input
+                  type="date"
+                  value={scheduleData.date}
+                  onChange={(e) => setScheduleData({ ...scheduleData, date: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                />
+              </div>
+
+              {/* Time */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-900 dark:text-white">
+                  Time *
+                </label>
+                <input
+                  type="time"
+                  value={scheduleData.time}
+                  onChange={(e) => setScheduleData({ ...scheduleData, time: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleModal(false)}
+                  className="flex-1 px-6 py-3 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={scheduling}
+                  className="flex-1 px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-all"
+                >
+                  {scheduling ? "Scheduling..." : "Schedule"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

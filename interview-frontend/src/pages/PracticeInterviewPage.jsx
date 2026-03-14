@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Award,
   ArrowRight,
@@ -35,11 +35,23 @@ const QUESTIONS = [
 ];
 
 export default function PracticeInterviewPage() {
+  const navigate = useNavigate();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answer, setAnswer] = useState("");
   const [timeLeft, setTimeLeft] = useState(90);
   const [isFinished, setIsFinished] = useState(false);
   const [answers, setAnswers] = useState([]);
+
+  const generateInterviewResultId = () => {
+    const timestamp = Date.now().toString(36);
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `INT-${timestamp}-${randomSuffix}`;
+  };
+
+  const handleStartOfficialInterview = () => {
+    const resultId = generateInterviewResultId();
+    navigate(`/interview/${resultId}`);
+  };
 
   const handleNext = useCallback(() => {
     setAnswers((currentAnswers) => [
@@ -117,9 +129,12 @@ export default function PracticeInterviewPage() {
               <p className="text-indigo-100 text-sm leading-relaxed mb-8">
                 Your practice performance shows you're ready to attempt the official interview for the Full Stack Developer role.
               </p>
-              <Link to="/interview/INT-001" className="block w-full bg-white text-blue-600 py-4 rounded-2xl font-black text-center hover:scale-[1.02] transition-all">
+              <button
+                onClick={handleStartOfficialInterview}
+                className="block w-full bg-white text-blue-600 py-4 rounded-2xl font-black text-center hover:scale-[1.02] transition-all"
+              >
                 Start Official Interview
-              </Link>
+              </button>
             </div>
 
             <button

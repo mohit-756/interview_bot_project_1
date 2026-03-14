@@ -9,7 +9,7 @@ import {
   Star,
   Clock
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import MetricCard from "../components/MetricCard";
 import StatusBadge from "../components/StatusBadge";
 import StepChecklist from "../components/StepChecklist";
@@ -17,11 +17,25 @@ import { mockCandidates } from "../data/mockData";
 import { cn } from "../utils/utils";
 
 export default function CandidateDashboardPage() {
+  const navigate = useNavigate();
   const [step, setStep] = useState(1); // 1: Upload, 2: Analysis
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [interviewResultId, setInterviewResultId] = useState(null);
 
   const candidate = mockCandidates[0]; // Alex Johnson
+
+  const generateInterviewResultId = () => {
+    const timestamp = Date.now().toString(36);
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `INT-${timestamp}-${randomSuffix}`;
+  };
+
+  const handleStartInterview = () => {
+    const resultId = generateInterviewResultId();
+    setInterviewResultId(resultId);
+    navigate(`/interview/${resultId}`);
+  };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -64,10 +78,13 @@ export default function CandidateDashboardPage() {
             <Play size={18} className="text-blue-600" />
             <span>Practice Mode</span>
           </Link>
-          <Link to="/interview/INT-001" className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none flex items-center space-x-2">
+          <button
+            onClick={handleStartInterview}
+            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none flex items-center space-x-2"
+          >
             <span>Start Real Interview</span>
             <ArrowRight size={18} />
-          </Link>
+          </button>
         </div>
       </div>
 

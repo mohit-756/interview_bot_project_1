@@ -30,6 +30,8 @@ export default function HRJdManagementPage() {
     total_questions: 8,
     weights_json: {},
   });
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedJd, setSelectedJd] = useState(null);
 
   // Fetch JDs on mount
   useEffect(() => {
@@ -285,7 +287,13 @@ export default function HRJdManagementPage() {
                       {new Date(jd.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
-                      <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
+                      <button
+                        onClick={() => {
+                          setSelectedJd(jd);
+                          setShowViewModal(true);
+                        }}
+                        className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                      >
                         View
                       </button>
                     </td>
@@ -459,6 +467,76 @@ export default function HRJdManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* View JD Modal */}
+      {showViewModal && selectedJd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900">
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white font-display">
+                {selectedJd.title}
+              </h2>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Job Description */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Job Description
+                </h3>
+                <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                  {selectedJd.jd_text}
+                </p>
+              </div>
+
+              {/* Settings Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Shortlist Cutoff</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedJd.qualify_score}%</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Min Academic</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedJd.min_academic_percent}%</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Interview Questions</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedJd.total_questions}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Candidates</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedJd.candidate_count || 0}</p>
+                </div>
+              </div>
+
+              {/* Created Date */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Created on {new Date(selectedJd.created_at).toLocaleDateString()} at {new Date(selectedJd.created_at).toLocaleTimeString()}
+                </p>
+              </div>
+
+              {/* Close Button */}
+              <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  onClick={() => setShowViewModal(false)}
+                  className="px-6 py-3 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-bold transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

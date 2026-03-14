@@ -171,7 +171,7 @@ export default function CandidateComparisonPage() {
                     </td>
                     <td className="muted text-sm">{candidate.created_at?.split("T")[0]}</td>
                     <td>
-                      <Link to={`/hr/candidates/${candidate.candidate_uid}`} className="button-link subtle-button">
+                      <Link to={`/hr/candidates/${candidate.uid}`} className="button-link subtle-button">
                         View Detail
                       </Link>
                     </td>
