@@ -15,6 +15,8 @@ from ai_engine.phase2.question_builder import build_question_bundle
 from ai_engine.phase1.scoring import compute_interview_scoring, compute_resume_skill_match
 from ai_engine.phase1.matching import extract_skills_from_jd, extract_text_from_file
 from database import get_db
+from services.llm.client import extract_skills as llm_extract_skills
+from ai_engine.phase1.matching import extract_text_from_file
 from models import Candidate, InterviewSession, JobDescription, JobDescriptionConfig, Result
 from routes.common import (
     UPLOAD_DIR,
@@ -897,8 +899,14 @@ def upload_jd(
     with jd_path.open("wb") as buffer:
         shutil.copyfileobj(jd_file.file, buffer)
 
-    extracted_skills = extract_skills_from_jd(str(jd_path))
-    ai_skills = {skill: 5 for skill in extracted_skills}
+        jd_raw_text = extract_text_from_file(str(jd_path))
+        ai_skills = llm_extract_skills(jd_raw_text)
+        if not ai_skills:
+            # fallback to hardcoded keyword list if LLM fails
+            extracted_skills = extract_skills_from_jd(str(jd_path))
+            ai_skills = {skill: 5 for skill in extracted_skills}
+            request.session["temp_jd"]["jd_raw_text"] = jd_raw_text[:8000]
+            request.session["temp_jd"]["jd_raw_text"] = jd_raw_text[:500] + "..."   # preview for frontend
 
     request.session["temp_jd"] = {
         "jd_title": jd_title.strip() if jd_title else None,

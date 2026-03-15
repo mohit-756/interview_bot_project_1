@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { CheckCircle2, XCircle, AlertTriangle, Camera } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import PageHeader from "../components/PageHeader";
 import { hrApi } from "../services/api";
 import { formatDateTime, formatPercent } from "../utils/formatters";
 
-function scoreOrEmpty(value) {
-  if (value === null || value === undefined) return "";
-  return String(value);
+function scoreColor(score) {
+  const n = Number(score);
+  if (n >= 80) return "text-emerald-600 dark:text-emerald-400";
+  if (n >= 60) return "text-blue-600 dark:text-blue-400";
+  if (n >= 40) return "text-amber-600 dark:text-amber-400";
+  return "text-red-500 dark:text-red-400";
+}
+
+function ScorePill({ score }) {
+  if (score === null || score === undefined) return <span className="text-slate-400 text-sm">—</span>;
+  const n = Math.round(Number(score));
+  return (
+    <span className={`inline-block font-black text-base ${scoreColor(n)}`}>{n}<span className="text-xs font-normal text-slate-400">/100</span></span>
+  );
 }
 
 export default function HRInterviewDetailPage() {
@@ -24,41 +37,28 @@ export default function HRInterviewDetailPage() {
   const [communicationScore, setCommunicationScore] = useState("");
   const [redFlags, setRedFlags] = useState("");
 
-  function hydrateReview(hrReview) {
-    if (!hrReview) return;
-    setNotes(hrReview.notes || "");
-    setFinalScore(scoreOrEmpty(hrReview.final_score));
-    setBehavioralScore(scoreOrEmpty(hrReview.behavioral_score));
-    setCommunicationScore(scoreOrEmpty(hrReview.communication_score));
-    setRedFlags(hrReview.red_flags || "");
-  }
-
   const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const response = await hrApi.interviewDetail(id);
       setData(response);
-      hydrateReview(response.hr_review);
-      if (response?.interview?.status === "rejected") {
-        setDecision("rejected");
-      } else if (response?.interview?.status === "selected") {
-        setDecision("selected");
+      const hr = response.hr_review;
+      if (hr) {
+        setNotes(hr.notes || "");
+        setFinalScore(hr.final_score ?? "");
+        setBehavioralScore(hr.behavioral_score ?? "");
+        setCommunicationScore(hr.communication_score ?? "");
+        setRedFlags(hr.red_flags || "");
       }
-    } catch (loadError) {
-      setError(loadError.message);
-    } finally {
-      setLoading(false);
-    }
+      if (response?.interview?.status === "rejected") setDecision("rejected");
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   async function handleFinalize() {
-    setSaving(true);
-    setError("");
+    setSaving(true); setError("");
     try {
       await hrApi.finalizeInterview(id, {
         decision,
@@ -69,148 +69,226 @@ export default function HRInterviewDetailPage() {
         red_flags: redFlags.trim() || null,
       });
       await load();
-    } catch (saveError) {
-      setError(saveError.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
   }
 
-  const suspiciousEvents = useMemo(
-    () => (data?.events || []).filter((event) => event.suspicious),
-    [data?.events],
-  );
-  const avgAnswerScore = useMemo(() => {
-    const scores = (data?.questions || [])
-      .map((question) => Number(question.ai_answer_score))
-      .filter((value) => !Number.isNaN(value));
+  const suspiciousEvents = useMemo(() => (data?.events || []).filter((e) => e.suspicious), [data?.events]);
+  const avgLLMScore = useMemo(() => {
+    const scores = (data?.questions || []).map((q) => Number(q.llm_score ?? q.ai_answer_score)).filter((v) => !isNaN(v) && v > 0);
     if (!scores.length) return null;
-    return scores.reduce((sum, value) => sum + value, 0) / scores.length;
+    return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
   }, [data?.questions]);
 
   if (loading) return <p className="center muted">Loading interview...</p>;
   if (error && !data) return <p className="alert error">{error}</p>;
   if (!data?.interview) return <p className="muted">Not found.</p>;
 
-  const { interview, questions, events, hr_review: hrReview } = data;
+  const { interview, questions, events, hr_review } = data;
 
   return (
-    <div className="stack">
+    <div className="space-y-8 pb-12">
       <PageHeader
-        title={`Interview ${interview.application_id || interview.interview_id}`}
-        subtitle={`Candidate ${interview.candidate?.name} for ${interview.job?.title || "selected role"}`}
-        actions={
-          <button type="button" className="subtle-button" onClick={() => navigate(-1)}>
-            Back
-          </button>
-        }
+        title={`Interview — ${interview.candidate?.name || "Candidate"}`}
+        subtitle={`${interview.job?.title || "Role"} · Application ${interview.application_id || interview.interview_id}`}
+        actions={<button type="button" className="subtle-button" onClick={() => navigate(-1)}>Back</button>}
       />
 
       {error && <p className="alert error">{error}</p>}
 
-      <section className="metric-grid">
-        <MetricCard label="Status" value={interview.status} hint="Current interview outcome" />
-        <MetricCard label="Started" value={formatDateTime(interview.started_at)} hint={`Ended ${formatDateTime(interview.ended_at)}`} />
-        <MetricCard label="Avg AI answer score" value={avgAnswerScore === null ? "N/A" : formatPercent(avgAnswerScore)} hint="Across all answered questions" />
-        <MetricCard label="Suspicious events" value={String(suspiciousEvents.length)} hint="Requires HR judgment" />
-      </section>
+      {/* Metrics row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MetricCard label="Status" value={interview.status} hint="Current outcome" />
+        <MetricCard label="Avg LLM score" value={avgLLMScore !== null ? `${avgLLMScore}%` : "Pending"} hint="Across all answers" />
+        <MetricCard label="Questions" value={String(questions?.length || 0)} hint="Total asked" />
+        <MetricCard label="Proctor flags" value={String(suspiciousEvents.length)} hint="Needs review" color="red" />
+      </div>
 
-      <section className="card stack">
-        <div className="title-row">
+      {/* ── Q&A TABLE ───────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Questions, Answers & LLM Scores</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Each answer has been scored by the AI after the interview completed.</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider w-8">#</th>
+                <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Question</th>
+                <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Answer</th>
+                <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-24">LLM Score</th>
+                <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">AI Feedback</th>
+                <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-20">Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {(!questions || !questions.length) && (
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">No questions recorded.</td></tr>
+              )}
+              {(questions || []).map((q, idx) => (
+                <tr key={q.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${q.skipped ? "opacity-60" : ""}`}>
+                  <td className="px-5 py-4 font-bold text-slate-400">{idx + 1}</td>
+                  <td className="px-5 py-4 text-slate-900 dark:text-white max-w-xs">
+                    <p className="line-clamp-3 leading-relaxed">{q.text}</p>
+                    <span className={`mt-1 inline-block text-xs px-2 py-0.5 rounded-full ${q.difficulty === "hard" ? "bg-red-50 text-red-600" : q.difficulty === "easy" ? "bg-green-50 text-green-600" : "bg-blue-50 text-blue-600"}`}>
+                      {q.difficulty}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-slate-600 dark:text-slate-300 max-w-xs">
+                    {q.skipped ? (
+                      <span className="italic text-slate-400">Skipped</span>
+                    ) : (
+                      <p className="line-clamp-4 leading-relaxed text-sm">{q.answer_text || "—"}</p>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <ScorePill score={q.llm_score ?? q.ai_answer_score} />
+                  </td>
+                  <td className="px-5 py-4 text-slate-500 dark:text-slate-400 max-w-xs">
+                    <p className="text-sm leading-relaxed line-clamp-3">
+                      {q.llm_feedback || q.answer_summary || "—"}
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 text-center text-slate-500 text-xs">
+                    {q.time_taken_seconds != null ? `${q.time_taken_seconds}s` : "—"}
+                    {q.allotted_seconds ? <span className="block text-slate-300">/ {q.allotted_seconds}s</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {avgLLMScore !== null && (
+              <tfoot>
+                <tr className="bg-slate-50 dark:bg-slate-800/50 border-t-2 border-slate-200 dark:border-slate-700">
+                  <td colSpan={3} className="px-5 py-3 font-bold text-slate-900 dark:text-white">Final Interview Score (avg)</td>
+                  <td className="px-5 py-3 text-center">
+                    <ScorePill score={avgLLMScore} />
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
+      {/* ── Proctoring TABLE ─────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <p className="eyebrow">Final review</p>
-            <h3>HR decision panel</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Proctoring Events</h3>
+            <p className="text-sm text-slate-500 mt-1">
+              {suspiciousEvents.length} suspicious event{suspiciousEvents.length !== 1 ? "s" : ""} flagged
+            </p>
           </div>
+          {suspiciousEvents.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-bold">
+              <AlertTriangle size={16} />
+              Review required
+            </div>
+          )}
         </div>
 
-        <p className="muted">
-          Current scores: Final {hrReview?.final_score ?? "N/A"} | Behavioral {hrReview?.behavioral_score ?? "N/A"} | Communication {hrReview?.communication_score ?? "N/A"}
-        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Time</th>
+                <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Event Type</th>
+                <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Flag</th>
+                <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Faces</th>
+                <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Score</th>
+                <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Snapshot</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {(!events || !events.length) && (
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">No proctoring events recorded.</td></tr>
+              )}
+              {(events || []).map((ev) => (
+                <tr key={ev.id} className={`transition-colors ${ev.suspicious ? "bg-red-50/40 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20" : "hover:bg-slate-50/50 dark:hover:bg-slate-800/30"}`}>
+                  <td className="px-5 py-3 text-slate-500 whitespace-nowrap text-xs">{formatDateTime(ev.created_at)}</td>
+                  <td className="px-5 py-3">
+                    <span className="font-medium text-slate-900 dark:text-white capitalize">
+                      {(ev.event_type || "").replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    {ev.suspicious ? (
+                      <XCircle size={18} className="text-red-500 mx-auto" />
+                    ) : (
+                      <CheckCircle2 size={18} className="text-emerald-500 mx-auto" />
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-center text-slate-600 dark:text-slate-300">
+                    {ev.meta_json?.faces_count ?? "—"}
+                  </td>
+                  <td className="px-5 py-3 text-center text-slate-600 dark:text-slate-300">
+                    {ev.score != null ? Number(ev.score).toFixed(2) : "—"}
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    {ev.image_url ? (
+                      <a href={ev.image_url} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">
+                        <Camera size={14} />View
+                      </a>
+                    ) : <span className="text-slate-400 text-xs">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-        <div className="section-grid">
-          <select value={decision} onChange={(event) => setDecision(event.target.value)}>
-            <option value="selected">Selected</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <input type="number" min={0} max={100} placeholder="Final score (0-100)" value={finalScore} onChange={(event) => setFinalScore(event.target.value)} />
-          <input type="number" min={0} max={100} placeholder="Behavioral score" value={behavioralScore} onChange={(event) => setBehavioralScore(event.target.value)} />
-          <input type="number" min={0} max={100} placeholder="Communication score" value={communicationScore} onChange={(event) => setCommunicationScore(event.target.value)} />
+      {/* ── HR Decision Panel ─────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
+        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">HR Decision</h3>
+
+        {hr_review?.final_score != null && (
+          <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-sm text-slate-600 dark:text-slate-300">
+            Current: Final {hr_review.final_score ?? "—"} · Behavioral {hr_review.behavioral_score ?? "—"} · Communication {hr_review.communication_score ?? "—"}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Decision</label>
+            <select value={decision} onChange={(e) => setDecision(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-sm dark:text-white">
+              <option value="selected">Selected</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          {[
+            ["Final score", finalScore, setFinalScore],
+            ["Behavioral", behavioralScore, setBehavioralScore],
+            ["Communication", communicationScore, setCommunicationScore],
+          ].map(([label, val, setter]) => (
+            <div key={label}>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">{label}</label>
+              <input type="number" min={0} max={100} placeholder="0–100" value={val}
+                onChange={(e) => setter(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-sm dark:text-white" />
+            </div>
+          ))}
         </div>
 
-        <textarea rows={2} placeholder="Red flags / suspicious behavior remarks" value={redFlags} onChange={(event) => setRedFlags(event.target.value)} />
-        <textarea rows={4} placeholder="Final interview notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
-        <button type="button" disabled={saving} onClick={handleFinalize}>
-          {saving ? "Saving..." : "Save decision"}
+        <div className="space-y-3 mb-5">
+          <textarea rows={2} placeholder="Red flags / suspicious behaviour notes"
+            value={redFlags} onChange={(e) => setRedFlags(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-sm dark:text-white resize-none" />
+          <textarea rows={3} placeholder="Final interview notes"
+            value={notes} onChange={(e) => setNotes(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-sm dark:text-white resize-none" />
+        </div>
+
+        <button type="button" disabled={saving} onClick={handleFinalize}
+          className={`px-8 py-3 rounded-xl font-bold text-white transition-all disabled:opacity-60 ${decision === "selected" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}`}>
+          {saving ? "Saving..." : `Save — ${decision === "selected" ? "Select" : "Reject"} Candidate`}
         </button>
-      </section>
-
-      <section className="card stack">
-        <div className="title-row">
-          <div>
-            <p className="eyebrow">Questions</p>
-            <h3>Answer review</h3>
-          </div>
-        </div>
-
-        {!questions?.length && <p className="muted">No questions.</p>}
-        {!!questions?.length && (
-          <div className="stack-sm">
-            {questions.map((question, index) => (
-              <article key={question.id} className="question-preview-card">
-                <div className="inline-row">
-                  <span className="skill-pill subtle">Question {index + 1}</span>
-                  <span className="skill-pill">{question.skipped ? "Skipped" : "Answered"}</span>
-                  <span className="muted">
-                    {question.time_taken_seconds ?? "N/A"}s / {question.allotted_seconds ?? "N/A"}s
-                  </span>
-                </div>
-                <strong>{question.text}</strong>
-                <p><em>Answer:</em> {question.answer_text || "(skipped)"}</p>
-                <p className="muted">Summary: {question.answer_summary || "-"}</p>
-                <div className="metric-grid compact">
-                  <MetricCard label="AI score" value={formatPercent(question.ai_answer_score)} />
-                  <MetricCard label="Relevance" value={formatPercent(question.score_breakdown?.relevance)} />
-                  <MetricCard label="Completeness" value={formatPercent(question.score_breakdown?.completeness)} />
-                  <MetricCard label="Clarity" value={formatPercent(question.score_breakdown?.clarity)} />
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="card stack">
-        <div className="title-row">
-          <div>
-            <p className="eyebrow">Proctoring</p>
-            <h3>Event timeline</h3>
-          </div>
-        </div>
-
-        {!events?.length && <p className="muted">No proctoring events.</p>}
-        {!!events?.length && (
-          <div className="stack-sm">
-            {events.map((event) => (
-              <article key={event.id} className={`event-row ${event.suspicious ? "flagged" : ""}`}>
-                <div className="inline-row">
-                  <strong>{event.event_type}</strong>
-                  <span className="muted">{formatDateTime(event.created_at)}</span>
-                  <span className="muted">score {event.score ?? 0}</span>
-                  <span className="muted">faces {event.meta_json?.faces_count ?? "N/A"}</span>
-                  {(event.image_url || event.snapshot_path) ? (
-                    <a href={event.image_url || `/${event.snapshot_path}`} target="_blank" rel="noreferrer">
-                      Snapshot
-                    </a>
-                  ) : null}
-                </div>
-                {event.meta_json?.frame_reasons?.length ? (
-                  <p className="muted">{event.meta_json.frame_reasons.join(" ")}</p>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
+      </div>
     </div>
   );
 }

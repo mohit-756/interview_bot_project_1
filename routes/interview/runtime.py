@@ -443,7 +443,7 @@ def interview_answer(
     if not result:
         raise HTTPException(status_code=404, detail="Interview result not found")
     job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
-    summary, relevance_score, _score_breakdown = summarize_and_score(
+    summary, relevance_score, score_breakdown = summarize_and_score(
         question.text,
         answer_text,
         allotted_seconds=question_limit,

@@ -132,6 +132,9 @@ class InterviewQuestion(Base):
     allotted_seconds = Column(Integer, default=60, nullable=False)
     time_taken_seconds = Column(Integer, nullable=True)
     skipped = Column(Boolean, default=False, nullable=False)
+    # ── LLM scoring (added) ──────────────────────────────────────────────────
+    llm_score = Column(Float, nullable=True)
+    llm_feedback = Column(Text, nullable=True)
 
     session = relationship("InterviewSession", back_populates="questions")
     answers = relationship("InterviewAnswer", back_populates="question")
@@ -148,6 +151,9 @@ class InterviewAnswer(Base):
     ended_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     skipped = Column(Boolean, default=False, nullable=False)
     time_taken_sec = Column(Integer, default=0, nullable=False)
+    # ── LLM scoring (added) ──────────────────────────────────────────────────
+    llm_score = Column(Float, nullable=True)
+    llm_feedback = Column(Text, nullable=True)
 
     session = relationship("InterviewSession", back_populates="answers")
     question = relationship("InterviewQuestion", back_populates="answers")

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { interviewApi, proctorApi } from "../services/api";
 import { cn } from "../utils/utils";
+import AnswerFeedback from "../components/AnswerFeedback";
 
 function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -20,7 +21,6 @@ function formatTime(seconds) {
 function appendTranscript(currentText, nextText) {
   const base = String(currentText || "").trim();
   const transcript = String(nextText || "").trim();
-
   if (!transcript) return base;
   if (!base) return transcript;
   return `${base} ${transcript}`;
@@ -37,17 +37,8 @@ function stopStreamTracks(stream) {
 }
 
 function getPreferredAudioMimeType() {
-  if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
-    return "";
-  }
-
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-
+  if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") return "";
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
   return candidates.find((type) => window.MediaRecorder.isTypeSupported(type)) || "";
 }
 
@@ -56,22 +47,14 @@ async function attachPreviewStream(videoElement, stream) {
   videoElement.srcObject = stream;
   videoElement.muted = true;
   videoElement.playsInline = true;
-
   try {
     await videoElement.play();
   } catch {
     await new Promise((resolve) => {
       const timeoutId = window.setTimeout(resolve, 500);
-      videoElement.onloadedmetadata = () => {
-        window.clearTimeout(timeoutId);
-        resolve();
-      };
+      videoElement.onloadedmetadata = () => { window.clearTimeout(timeoutId); resolve(); };
     });
-    try {
-      await videoElement.play();
-    } catch {
-      // Some browsers still block autoplay; the assigned srcObject is retained.
-    }
+    try { await videoElement.play(); } catch { /* keep srcObject */ }
   }
 }
 
@@ -95,6 +78,8 @@ export default function Interview() {
   const [previewReady, setPreviewReady] = useState(false);
   const [previewWarning, setPreviewWarning] = useState("");
   const [proctorWarning, setProctorWarning] = useState("");
+  // ── NEW: live feedback state
+  const [answerFeedback, setAnswerFeedback] = useState(null);
 
   const videoRef = useRef(null);
   const autoSubmittedRef = useRef(false);
@@ -143,9 +128,7 @@ export default function Interview() {
     }
   }, []);
 
-  useEffect(() => {
-    loadSession();
-  }, [loadSession]);
+  useEffect(() => { loadSession(); }, [loadSession]);
 
   useEffect(() => {
     let disposed = false;
@@ -154,32 +137,18 @@ export default function Interview() {
     async function startPreview() {
       setPreviewReady(false);
       setPreviewWarning("");
-
-      if (streamRef.current) {
-        stopStreamTracks(streamRef.current);
-        streamRef.current = null;
-      }
-
+      if (streamRef.current) { stopStreamTracks(streamRef.current); streamRef.current = null; }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        if (disposed) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
+        if (disposed) { stream.getTracks().forEach((track) => track.stop()); return; }
         streamRef.current = stream;
         await attachPreviewStream(videoElement, stream);
         setPreviewReady(true);
         return;
-      } catch {
-        // Fall back to camera-only if audio permission blocks the combined request.
-      }
-
+      } catch { /* fall back */ }
       try {
         const videoOnlyStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        if (disposed) {
-          videoOnlyStream.getTracks().forEach((track) => track.stop());
-          return;
-        }
+        if (disposed) { videoOnlyStream.getTracks().forEach((track) => track.stop()); return; }
         streamRef.current = videoOnlyStream;
         await attachPreviewStream(videoElement, videoOnlyStream);
         setPreviewReady(true);
@@ -198,32 +167,43 @@ export default function Interview() {
         recorder.ondataavailable = null;
         recorder.onerror = null;
         recorder.onstop = null;
-        if (recorder.state !== "inactive") {
-          recorder.stop();
-        }
+        if (recorder.state !== "inactive") recorder.stop();
         recorderRef.current = null;
       }
       releaseAudioStream();
-      if (streamRef.current) {
-        stopStreamTracks(streamRef.current);
-        streamRef.current = null;
-      }
-      if (videoElement) {
-        videoElement.srcObject = null;
-      }
+      if (streamRef.current) { stopStreamTracks(streamRef.current); streamRef.current = null; }
+      if (videoElement) videoElement.srcObject = null;
     };
   }, [releaseAudioStream]);
 
   useEffect(() => {
-    if (!currentQuestion || loading || isSubmitting) return;
-
+    // Pause the timer while the feedback card is showing
+    if (!currentQuestion || loading || isSubmitting || answerFeedback) return;
     const interval = setInterval(() => {
       setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
       setTotalTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [currentQuestion, isSubmitting, loading]);
+  }, [currentQuestion, isSubmitting, loading, answerFeedback]);
+
+  // ── NEW: helper to advance to the next question after feedback is dismissed
+  const _advanceAfterAnswer = useCallback((response) => {
+    if (response.interview_completed || !response.next_question) {
+      navigate(`/interview/${resultId}/completed`);
+      return;
+    }
+    setCurrentQuestion(response.next_question);
+    setQuestionNumber(response.question_number || questionNumber + 1);
+    setMaxQuestions(response.max_questions || maxQuestions);
+    setTimeLeft(response.time_limit_seconds || 0);
+    setTotalTimeLeft(response.remaining_total_seconds || 0);
+    setAnswer("");
+    setTranscriptionWarning("");
+    setIsRecording(false);
+    setIsTranscribing(false);
+    autoSubmittedRef.current = false;
+    setAnswerFeedback(null);
+  }, [navigate, resultId, questionNumber, maxQuestions]);
 
   const submitAnswer = useCallback(async ({ skipCurrent = false, answerOverride } = {}) => {
     if (!sessionId || !currentQuestion) return;
@@ -245,40 +225,27 @@ export default function Interview() {
 
       setTranscripts((current) => [
         ...current,
-        {
-          q: currentQuestion.text,
-          a: skipCurrent ? "" : resolvedAnswer,
-        },
+        { q: currentQuestion.text, a: skipCurrent ? "" : resolvedAnswer },
       ]);
 
-      if (response.interview_completed || !response.next_question) {
-        navigate(`/interview/${resultId}/completed`);
-        return;
+      // ── NEW: show feedback card for non-skipped answers
+      if (response.feedback && !skipCurrent && normalizedAnswer) {
+        setAnswerFeedback({ ...response.feedback, _nextResponse: response });
+        return; // wait for candidate to click "Next question"
       }
 
-      setCurrentQuestion(response.next_question);
-      setQuestionNumber(response.question_number || questionNumber + 1);
-      setMaxQuestions(response.max_questions || maxQuestions);
-      setTimeLeft(response.time_limit_seconds || 0);
-      setTotalTimeLeft(response.remaining_total_seconds || 0);
-      setAnswer("");
-      setTranscriptionWarning("");
-      setIsRecording(false);
-      setIsTranscribing(false);
-      autoSubmittedRef.current = false;
+      _advanceAfterAnswer(response);
     } catch (submitError) {
       setError(submitError.message);
       autoSubmittedRef.current = false;
     } finally {
       setIsSubmitting(false);
     }
-  }, [answer, currentQuestion, maxQuestions, navigate, questionNumber, resultId, sessionId, timeLeft]);
+  }, [answer, currentQuestion, _advanceAfterAnswer, sessionId, timeLeft]);
 
   const stopRecordingAndTranscribe = useCallback(async () => {
     const recorder = recorderRef.current;
-    if (!recorder) {
-      return { text: "", lowConfidence: true, confidence: null };
-    }
+    if (!recorder) return { text: "", lowConfidence: true, confidence: null };
 
     setIsRecording(false);
     setIsTranscribing(true);
@@ -290,43 +257,30 @@ export default function Interview() {
           const message = event?.error?.message || "Voice recording failed. Check microphone access and try again.";
           reject(new Error(message));
         };
-
         recorder.onstop = async () => {
           recorderRef.current = null;
-
           try {
             const mimeType = recorder.mimeType || getPreferredAudioMimeType() || "audio/webm";
             const audioBlob = new Blob(recordedChunksRef.current, { type: mimeType });
             recordedChunksRef.current = [];
             releaseAudioStream();
-
-            if (!audioBlob.size) {
-              resolve({ text: "", lowConfidence: true, confidence: null });
-              return;
-            }
-
+            if (!audioBlob.size) { resolve({ text: "", lowConfidence: true, confidence: null }); return; }
             const formData = new FormData();
             const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
             const preferredLanguage = (navigator.language || "en").split("-")[0] || "en";
-
             formData.append("audio", audioBlob, `answer.${extension}`);
             formData.append("language", preferredLanguage);
             formData.append("context_hint", String(currentQuestion?.text || ""));
-
             const response = await interviewApi.transcribe(formData);
             resolve({
               text: String(response?.text || "").trim(),
               lowConfidence: Boolean(response?.low_confidence),
               confidence: typeof response?.confidence === "number" ? response.confidence : null,
             });
-          } catch (transcriptionError) {
-            reject(transcriptionError);
-          }
+          } catch (transcriptionError) { reject(transcriptionError); }
         };
-
         recorder.stop();
       });
-
       return transcript;
     } finally {
       setIsTranscribing(false);
@@ -338,31 +292,23 @@ export default function Interview() {
       setError("Voice recording is not supported in this browser. Use Chrome, Edge, or Brave.");
       return;
     }
-
     setError("");
     setTranscriptionWarning("");
-
     try {
       let recordingStream;
-
       if (hasActiveAudioTrack(streamRef.current)) {
         recordingStream = new MediaStream(streamRef.current.getAudioTracks());
       } else {
         recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         audioStreamRef.current = recordingStream;
       }
-
       recordedChunksRef.current = [];
-
       const mimeType = getPreferredAudioMimeType();
       const recorder = mimeType
         ? new window.MediaRecorder(recordingStream, { mimeType })
         : new window.MediaRecorder(recordingStream);
-
       recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunksRef.current.push(event.data);
-        }
+        if (event.data && event.data.size > 0) recordedChunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
         recorderRef.current = null;
@@ -371,7 +317,6 @@ export default function Interview() {
         setIsRecording(false);
         setError("Voice recording failed. Check microphone access and try again.");
       };
-
       recorder.start();
       recorderRef.current = recorder;
       setIsRecording(true);
@@ -382,165 +327,108 @@ export default function Interview() {
   }, [releaseAudioStream]);
 
   const handleRecordingToggle = useCallback(async () => {
-    if (isSubmitting || isTranscribing) {
-      return;
-    }
-
-    if (!isRecording) {
-      await startRecording();
-      return;
-    }
-
+    if (isSubmitting || isTranscribing) return;
+    if (!isRecording) { await startRecording(); return; }
     try {
       const transcript = await stopRecordingAndTranscribe();
-      if (!transcript.text) {
-        setError("No speech was detected. Try again or edit your answer manually.");
-        return;
-      }
-
+      if (!transcript.text) { setError("No speech was detected. Try again or edit your answer manually."); return; }
       if (transcript.lowConfidence) {
-        const confidenceSuffix =
-          typeof transcript.confidence === "number"
-            ? ` (confidence ${(transcript.confidence * 100).toFixed(0)}%)`
-            : "";
+        const confidenceSuffix = typeof transcript.confidence === "number"
+          ? ` (confidence ${(transcript.confidence * 100).toFixed(0)}%)` : "";
         setTranscriptionWarning(`Whisper was unsure about parts of this answer${confidenceSuffix}. Review the transcript before submitting.`);
       } else {
         setTranscriptionWarning("");
       }
-
       setAnswer((current) => appendTranscript(current, transcript.text));
-    } catch (recordingError) {
-      setError(recordingError.message);
-    }
+    } catch (recordingError) { setError(recordingError.message); }
   }, [isRecording, isSubmitting, isTranscribing, startRecording, stopRecordingAndTranscribe]);
 
   const captureAndUploadFrame = useCallback(async (eventType = "scan") => {
     if (!sessionId || !videoRef.current || !previewReady) return;
-
     try {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-
       canvas.width = videoRef.current.videoWidth || 320;
       canvas.height = videoRef.current.videoHeight || 240;
       ctx.drawImage(videoRef.current, 0, 0);
-
-      const blob = await new Promise((resolve) => {
-        canvas.toBlob(resolve, "image/jpeg", 0.7);
-      });
-
-      if (!blob) {
-        setProctorWarning("Webcam frame capture failed. Check camera access and try again.");
-        return;
-      }
-
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.7));
+      if (!blob) { setProctorWarning("Webcam frame capture failed. Check camera access and try again."); return; }
       const response = await proctorApi.uploadFrame(sessionId, blob, eventType);
       if (response?.requested_event_type === "baseline") {
-        if (response?.baseline_ready) {
-          setProctorWarning("");
-        } else if (Array.isArray(response?.frame_reasons) && response.frame_reasons.length) {
+        if (response?.baseline_ready) setProctorWarning("");
+        else if (Array.isArray(response?.frame_reasons) && response.frame_reasons.length)
           setProctorWarning(response.frame_reasons.join(" "));
-        } else {
-          setProctorWarning("Baseline capture needs a clear single-face webcam frame.");
-        }
+        else setProctorWarning("Baseline capture needs a clear single-face webcam frame.");
         return;
       }
-
       if (response?.paused || response?.warning_triggered || response?.action === "adjust") {
-        if (Array.isArray(response?.frame_reasons) && response.frame_reasons.length) {
+        if (Array.isArray(response?.frame_reasons) && response.frame_reasons.length)
           setProctorWarning(response.frame_reasons.join(" "));
-        } else {
-          setProctorWarning("Webcam monitoring detected an issue. Keep your face centered and visible.");
-        }
+        else setProctorWarning("Webcam monitoring detected an issue. Keep your face centered and visible.");
         return;
       }
-
       setProctorWarning("");
     } catch (uploadError) {
       console.error("Proctor frame upload failed", uploadError);
-      setProctorWarning(uploadError?.message || "Webcam monitoring upload failed. Check backend connectivity and camera access.");
+      setProctorWarning(uploadError?.message || "Webcam monitoring upload failed.");
     }
   }, [sessionId, previewReady]);
 
-  useEffect(() => {
-    if (!sessionId || !previewReady || baselineCapturedRef.current) return;
-    baselineCapturedRef.current = true;
-    void captureAndUploadFrame("baseline");
-  }, [sessionId, previewReady, captureAndUploadFrame]);
+  // FIX — add 2s delay
+useEffect(() => {
+  if (!sessionId || !previewReady || baselineCapturedRef.current) return;
+  baselineCapturedRef.current = true;
+  const t = setTimeout(() => void captureAndUploadFrame("baseline"), 2000);
+  return () => clearTimeout(t);}, [sessionId, previewReady, captureAndUploadFrame]);
 
   const handleSubmit = useCallback(async (skipCurrent = false) => {
-    if (isSubmitting || isTranscribing) {
-      return;
-    }
-
+    if (isSubmitting || isTranscribing) return;
     let nextAnswer = answer;
-
     if (isRecording) {
       try {
         const transcript = await stopRecordingAndTranscribe();
         nextAnswer = appendTranscript(answer, transcript.text);
-
         if (transcript.lowConfidence) {
-          const confidenceSuffix =
-            typeof transcript.confidence === "number"
-              ? ` (confidence ${(transcript.confidence * 100).toFixed(0)}%)`
-              : "";
+          const confidenceSuffix = typeof transcript.confidence === "number"
+            ? ` (confidence ${(transcript.confidence * 100).toFixed(0)}%)` : "";
           setTranscriptionWarning(`Whisper was unsure about parts of this answer${confidenceSuffix}. Review the transcript before submitting.`);
-        } else {
-          setTranscriptionWarning("");
-        }
-
-        if (transcript.text) {
-          setAnswer(nextAnswer);
-        }
+        } else { setTranscriptionWarning(""); }
+        if (transcript.text) setAnswer(nextAnswer);
       } catch (submitError) {
         setError(submitError.message);
         autoSubmittedRef.current = false;
         return;
       }
     }
-
-    await submitAnswer({
-      skipCurrent,
-      answerOverride: nextAnswer,
-    });
+    await submitAnswer({ skipCurrent, answerOverride: nextAnswer });
   }, [answer, isRecording, isSubmitting, isTranscribing, stopRecordingAndTranscribe, submitAnswer]);
 
   useEffect(() => {
-    if (!currentQuestion || isSubmitting || isTranscribing) return;
+    // Don't auto-submit while feedback is showing
+    if (!currentQuestion || isSubmitting || isTranscribing || answerFeedback) return;
     if (timeLeft > 0 || autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
     void handleSubmit(false);
-  }, [currentQuestion, handleSubmit, isSubmitting, isTranscribing, timeLeft]);
+  }, [currentQuestion, handleSubmit, isSubmitting, isTranscribing, timeLeft, answerFeedback]);
 
   useEffect(() => {
     if (!sessionId || !previewReady) return;
-
-    // Capture and upload frames every 15 seconds for proctoring
-    const frameInterval = setInterval(() => {
-      void captureAndUploadFrame("scan");
-    }, 15000);
-
+    const frameInterval = setInterval(() => { void captureAndUploadFrame("scan"); }, 15000);
     return () => clearInterval(frameInterval);
   }, [sessionId, previewReady, captureAndUploadFrame]);
 
-  if (loading) {
-    return <p className="center muted">Starting interview session...</p>;
-  }
-
-  if (error && !currentQuestion) {
-    return <p className="alert error">{error}</p>;
-  }
+  if (loading) return <p className="center muted">Starting interview session...</p>;
+  if (error && !currentQuestion) return <p className="alert error">{error}</p>;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans p-4 lg:p-8">
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
         <div className="lg:col-span-2 space-y-6">
           {error ? <p className="alert error">{error}</p> : null}
-          {previewWarning ? <p className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 px-4 py-3">{previewWarning}</p> : null}
-          {proctorWarning ? <p className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 px-4 py-3">{proctorWarning}</p> : null}
-
+          {proctorWarning && !proctorWarning.includes("Baseline") && !proctorWarning.includes("baseline") ? 
+          <p className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 px-4 py-3">{proctorWarning}</p> : null}
+          {/* Progress bar */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 w-10 h-10 rounded-xl flex items-center justify-center font-bold">
@@ -550,16 +438,20 @@ export default function Interview() {
                 <h4 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-none">
                   Question {questionNumber} of {maxQuestions}
                 </h4>
-                <p className="text-slate-900 dark:text-white font-bold mt-1">Live Interview Session</p>
+                <p className="text-slate-900 dark:text-white font-bold mt-1">
+                  {answerFeedback ? "Review your answer" : "Live Interview Session"}
+                </p>
               </div>
             </div>
             <div className="flex items-center space-x-6">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Question Timer</p>
-                <p className={cn("text-xl font-black font-mono", timeLeft < 20 ? "text-red-500 animate-pulse" : "text-slate-900 dark:text-white")}>
-                  {formatTime(timeLeft)}
-                </p>
-              </div>
+              {!answerFeedback && (
+                <div className="text-right hidden sm:block">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Question Timer</p>
+                  <p className={cn("text-xl font-black font-mono", timeLeft < 20 ? "text-red-500 animate-pulse" : "text-slate-900 dark:text-white")}>
+                    {formatTime(timeLeft)}
+                  </p>
+                </div>
+              )}
               <div className="text-right">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Time</p>
                 <p className="text-xl font-black font-mono text-slate-900 dark:text-white">{formatTime(totalTimeLeft)}</p>
@@ -567,6 +459,7 @@ export default function Interview() {
             </div>
           </div>
 
+          {/* Question text */}
           <div className="bg-white dark:bg-slate-900 p-10 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-2 h-full bg-blue-600 transition-all duration-300 group-hover:w-4" />
             <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white font-display leading-tight">
@@ -574,86 +467,90 @@ export default function Interview() {
             </h2>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center">
-                <MessageSquare className="mr-2 text-blue-600" size={18} />
-                Your Response
-              </h4>
-              <div className="flex items-center space-x-2">
-                <span
-                  className={cn(
-                    "w-2 h-2 rounded-full",
-                    isRecording
-                      ? "bg-red-500 animate-pulse"
-                      : isTranscribing
-                        ? "bg-amber-500 animate-pulse"
-                        : "bg-emerald-500",
-                  )}
-                />
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                  {isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Voice Ready"}
-                </span>
-              </div>
-            </div>
-
-            <textarea
-              className="w-full h-48 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl p-6 text-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 transition-all resize-none font-medium leading-relaxed"
-              placeholder="Your Whisper transcript appears here. You can still edit before submitting."
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
+          {/* ── Feedback card OR answer input */}
+          {answerFeedback ? (
+            <AnswerFeedback
+              feedback={answerFeedback}
+              isLastQuestion={questionNumber === maxQuestions}
+              onContinue={() => _advanceAfterAnswer(answerFeedback._nextResponse)}
             />
-
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              Voice-first mode uses Whisper transcription. Typed edits are optional.
-            </p>
-            {transcriptionWarning ? (
-              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                {transcriptionWarning}
-              </p>
-            ) : null}
-
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={handleRecordingToggle}
-                  disabled={isSubmitting || isTranscribing}
-                  className={cn(
-                    "flex-1 sm:flex-none flex items-center justify-center space-x-3 px-8 py-4 rounded-2xl font-black transition-all disabled:cursor-not-allowed disabled:opacity-60",
-                    isRecording
-                      ? "bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-200"
-                      : "bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200",
-                  )}
-                >
-                  {isRecording ? <MicOff size={22} /> : <Mic size={22} />}
-                  <span>{isRecording ? "Stop & Transcribe" : isTranscribing ? "Transcribing..." : "Start Speaking"}</span>
-                </button>
+          ) : (
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center">
+                  <MessageSquare className="mr-2 text-blue-600" size={18} />
+                  Your Response
+                </h4>
+                <div className="flex items-center space-x-2">
+                  <span className={cn("w-2 h-2 rounded-full",
+                    isRecording ? "bg-red-500 animate-pulse" :
+                    isTranscribing ? "bg-amber-500 animate-pulse" : "bg-emerald-500"
+                  )} />
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                    {isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Voice Ready"}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setAnswer("")}
-                  disabled={isSubmitting || isTranscribing}
-                  className="flex-1 sm:flex-none px-6 py-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSubmit(false)}
-                  disabled={isSubmitting || isTranscribing}
-                  className="flex-1 sm:flex-none flex items-center justify-center space-x-3 px-8 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition-all shadow-lg shadow-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span>{isSubmitting ? "Submitting..." : questionNumber === maxQuestions ? "Finish Interview" : "Next Question"}</span>
-                  <Send size={18} />
-                </button>
+              <textarea
+                className="w-full h-48 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl p-6 text-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 transition-all resize-none font-medium leading-relaxed"
+                placeholder="Your Whisper transcript appears here. You can still edit before submitting."
+                value={answer}
+                onChange={(event) => setAnswer(event.target.value)}
+              />
+
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Voice-first mode uses Whisper transcription. Typed edits are optional.
+              </p>
+              {transcriptionWarning ? (
+                <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  {transcriptionWarning}
+                </p>
+              ) : null}
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={handleRecordingToggle}
+                    disabled={isSubmitting || isTranscribing}
+                    className={cn(
+                      "flex-1 sm:flex-none flex items-center justify-center space-x-3 px-8 py-4 rounded-2xl font-black transition-all disabled:cursor-not-allowed disabled:opacity-60",
+                      isRecording
+                        ? "bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-200"
+                        : "bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200",
+                    )}
+                  >
+                    {isRecording ? <MicOff size={22} /> : <Mic size={22} />}
+                    <span>{isRecording ? "Stop & Transcribe" : isTranscribing ? "Transcribing..." : "Start Speaking"}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setAnswer("")}
+                    disabled={isSubmitting || isTranscribing}
+                    className="flex-1 sm:flex-none px-6 py-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSubmit(false)}
+                    disabled={isSubmitting || isTranscribing}
+                    className="flex-1 sm:flex-none flex items-center justify-center space-x-3 px-8 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition-all shadow-lg shadow-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span>{isSubmitting ? "Submitting..." : questionNumber === maxQuestions ? "Finish Interview" : "Submit Answer"}</span>
+                    <Send size={18} />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
+        {/* Right panel: camera + session log */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-6 space-y-6">
             <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center">

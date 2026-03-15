@@ -75,6 +75,13 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE results ADD COLUMN application_id VARCHAR(64)"))
             if "events_json" not in res_cols:
                 conn.execute(text("ALTER TABLE results ADD COLUMN events_json TEXT"))
+            rows = conn.execute(text("PRAGMA table_info(interview_answers)")).fetchall()
+            ans_cols = {row[1] for row in rows}
+            if "llm_score" not in ans_cols:
+                conn.execute(text("ALTER TABLE interview_answers ADD COLUMN llm_score FLOAT"))
+            if "llm_feedback" not in ans_cols:
+                conn.execute(text("ALTER TABLE interview_answers ADD COLUMN llm_feedback TEXT"))
+
 
             # new columns on interview_questions_v2
             rows = conn.execute(text("PRAGMA table_info(interview_questions_v2)")).fetchall()
@@ -89,6 +96,10 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE interview_questions_v2 ADD COLUMN skipped BOOLEAN DEFAULT 0 NOT NULL"))
             if "answer_text" not in q_cols:
                 conn.execute(text("ALTER TABLE interview_questions_v2 ADD COLUMN answer_text TEXT"))
+            if "llm_score" not in q_cols:
+                conn.execute(text("ALTER TABLE interview_questions_v2 ADD COLUMN llm_score FLOAT"))
+            if "llm_feedback" not in q_cols:
+                conn.execute(text("ALTER TABLE interview_questions_v2 ADD COLUMN llm_feedback TEXT"))
             if "allotted_seconds" not in q_cols:
                 conn.execute(
                     text("ALTER TABLE interview_questions_v2 ADD COLUMN allotted_seconds INTEGER DEFAULT 60 NOT NULL")

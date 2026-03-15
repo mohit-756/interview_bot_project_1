@@ -1,8 +1,26 @@
-import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Home, BarChart3, ArrowRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { CheckCircle2, Home, BarChart3, ArrowRight, Loader2 } from "lucide-react";
+import { interviewApi } from "../services/api";
 
 export default function Completed() {
   const navigate = useNavigate();
+  const { resultId } = useParams();
+  const [evaluating, setEvaluating] = useState(false);
+  const [evaluated, setEvaluated] = useState(false);
+
+  // Trigger LLM scoring once when this page mounts
+  useEffect(() => {
+    const sessionId = sessionStorage.getItem(`session-id:${resultId}`);
+    if (!sessionId) { setEvaluated(true); return; }
+
+    setEvaluating(true);
+    interviewApi
+      .evaluate(Number(sessionId))
+      .then(() => setEvaluated(true))
+      .catch(() => setEvaluated(true))  // don't block navigation on failure
+      .finally(() => setEvaluating(false));
+  }, [resultId]);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 font-sans">
@@ -21,54 +39,43 @@ export default function Completed() {
             Interview Submitted
           </h1>
           <p className="text-xl text-slate-500 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
-            Your interview session is complete. The recruitment team can now review your transcript,
-            answers, and proctoring timeline.
+            Your answers have been recorded. The recruitment team will review your results.
           </p>
         </div>
 
+        {/* LLM scoring status */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 px-6 py-4 inline-flex items-center gap-3 mx-auto">
+          {evaluating ? (
+            <>
+              <Loader2 size={18} className="text-blue-500 animate-spin" />
+              <span className="text-sm text-slate-600 dark:text-slate-300">Scoring your answers...</span>
+            </>
+          ) : (
+            <>
+              <CheckCircle2 size={18} className="text-emerald-500" />
+              <span className="text-sm text-slate-600 dark:text-slate-300">Answers scored and saved</span>
+            </>
+          )}
+        </div>
+
         <div className="bg-white dark:bg-slate-900 p-8 rounded-[40px] border border-slate-200 dark:border-slate-800 shadow-xl max-w-md mx-auto">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">
-            What happens next?
-          </h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">What happens next?</h3>
           <div className="space-y-6 text-left">
-            <div className="flex items-start space-x-4">
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
-                1
+            {[
+              ["1", "Interview submitted", "Your final answers are saved and the session is closed."],
+              ["2", "HR review", "Recruiters review your answers, scores, and interview notes."],
+              ["3", "Final outcome", "Check your application status page for the decision."],
+            ].map(([num, title, desc]) => (
+              <div key={num} className="flex items-start space-x-4">
+                <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs flex-shrink-0">
+                  {num}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white">{title}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900 dark:text-white">
-                  Interview Submitted
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Your final answers are saved and the session is closed.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-4">
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
-                2
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900 dark:text-white">HR Review</p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Recruiters review your interview answers and final notes.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-4">
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
-                3
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900 dark:text-white">
-                  Final Outcome
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Check your application status page for screening status, interview review, and the
-                  final decision when available.
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
