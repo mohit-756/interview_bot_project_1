@@ -57,6 +57,73 @@ def groq_health() -> dict[str, object]:
             "degraded": True,
             "message": f"Groq API check failed: {str(exc)[:200]}",
         }
+    
+# Add these two routes to routes/auth/sessions.py
+
+# ── PUT /api/auth/profile ────────────────────────────────────────────────────
+# Allows a logged-in user to update their display name.
+
+from pydantic import BaseModel as _BaseModel
+
+class ProfileUpdateBody(_BaseModel):
+    name: str
+
+@router.put("/auth/profile")
+def update_profile(
+    payload: ProfileUpdateBody,
+    current_user: SessionUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+
+    if current_user.role == "candidate":
+        user = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.name = name
+    else:
+        user = db.query(HR).filter(HR.id == current_user.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.company_name = name
+
+    db.commit()
+    return {"ok": True, "name": name}
+
+
+# ── POST /api/auth/change-password ──────────────────────────────────────────
+# Allows a logged-in user to change their password after verifying current one.
+
+class ChangePasswordBody(_BaseModel):
+    current_password: str
+    new_password: str
+
+@router.post("/auth/change-password")
+def change_password(
+    payload: ChangePasswordBody,
+    current_user: SessionUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+
+    if current_user.role == "candidate":
+        user = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
+    else:
+        user = db.query(HR).filter(HR.id == current_user.user_id).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not verify_password(payload.current_password, user.password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    user.password = hash_password(payload.new_password)
+    db.commit()
+    return {"ok": True, "message": "Password updated successfully"}
+
 
 
 @router.post("/auth/signup")
