@@ -15,7 +15,8 @@ import HRJdDetailPage from "./pages/HRJdDetailPage";
 import HRAnalyticsPage from "./pages/HRAnalyticsPage";
 import HRBackupPage from "./pages/HRBackupPage";
 import HRProctoringPage from "./pages/HRProctoringPage";
-import HRSkillWeightsPage from "./pages/HRSkillWeightsPage";
+// PHASE 1 FIX: HRSkillWeightsPage removed — skill weights are now managed
+// directly inside HRJdManagementPage (edit JD form). Page was redundant.
 import CandidateDashboardPage from "./pages/CandidateDashboardPage";
 import PracticeInterviewPage from "./pages/PracticeInterviewPage";
 import PreCheck from "./pages/PreCheck";
@@ -63,7 +64,7 @@ export default function App() {
           <Route path="hr/matrix" element={<HRScoreMatrixPage />} />
           <Route path="hr/analytics" element={<HRAnalyticsPage />} />
           <Route path="hr/backup" element={<HRBackupPage />} />
-          <Route path="hr/skill-weights" element={<HRSkillWeightsPage />} />
+          {/* PHASE 1 FIX: /hr/skill-weights route removed — no longer needed */}
           <Route path="hr/proctoring/:sessionId" element={<HRProctoringPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

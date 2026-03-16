@@ -19,6 +19,46 @@ def health() -> dict[str, object]:
     return {"ok": True, "status": "healthy"}
 
 
+# PHASE 1 FIX: Groq API health check endpoint.
+# Called by HR dashboard to show whether LLM scoring / Whisper is operational.
+@router.get("/health/groq")
+def groq_health() -> dict[str, object]:
+    """
+    Check Groq API reachability so HR knows if AI scoring and Whisper
+    transcription are available before starting interview sessions.
+    Always returns HTTP 200 — 'degraded' flag signals the actual state.
+    """
+    import os
+    from groq import Groq
+
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        return {
+            "ok": True,
+            "groq": "unconfigured",
+            "degraded": True,
+            "message": "GROQ_API_KEY is not set. LLM scoring and Whisper transcription are disabled.",
+        }
+    try:
+        client = Groq(api_key=api_key)
+        models = client.models.list()
+        model_ids = [m.id for m in (models.data or [])]
+        return {
+            "ok": True,
+            "groq": "reachable",
+            "degraded": False,
+            "models_available": len(model_ids),
+            "message": "Groq API is reachable and ready.",
+        }
+    except Exception as exc:
+        return {
+            "ok": True,
+            "groq": "unreachable",
+            "degraded": True,
+            "message": f"Groq API check failed: {str(exc)[:200]}",
+        }
+
+
 @router.post("/auth/signup")
 def signup(payload: SignupBody, db: Session = Depends(get_db)) -> dict[str, object]:
     role = payload.role.strip().lower()

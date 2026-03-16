@@ -2,25 +2,26 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Users, ClipboardList, Settings, LogOut,
-  MessageSquare, BarChart3, Video, FileText, LayoutGrid, Download, Weight
+  MessageSquare, BarChart3, Video, FileText, LayoutGrid, Download
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import { cn } from "../utils/utils";
 
+// PHASE 1 FIX: Removed redundant "Skill Weights" link — that functionality
+// is now fully handled inside JD Management (edit JD → update weights).
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const isHR = user?.role === "hr";
 
   const hrLinks = [
-    { name: "Dashboard",        path: "/hr",                icon: LayoutDashboard },
-    { name: "Candidates",       path: "/hr/candidates",     icon: Users },
-    { name: "JD Management",    path: "/hr/jds",            icon: FileText },
-    { name: "Score Matrix",     path: "/hr/matrix",         icon: LayoutGrid },
-    { name: "Interview Reviews",path: "/hr/interviews",     icon: ClipboardList },
-    { name: "Analytics",        path: "/hr/analytics",      icon: BarChart3 },
-    { name: "Skill Weights",    path: "/hr/skill-weights",  icon: Weight },
-    { name: "Backup",           path: "/hr/backup",         icon: Download },
-    { name: "Settings",         path: "/settings",          icon: Settings },
+    { name: "Dashboard",         path: "/hr",              icon: LayoutDashboard },
+    { name: "Candidates",        path: "/hr/candidates",   icon: Users },
+    { name: "JD Management",     path: "/hr/jds",          icon: FileText },
+    { name: "Score Matrix",      path: "/hr/matrix",       icon: LayoutGrid },
+    { name: "Interview Reviews", path: "/hr/interviews",   icon: ClipboardList },
+    { name: "Analytics",         path: "/hr/analytics",    icon: BarChart3 },
+    { name: "Backup",            path: "/hr/backup",       icon: Download },
+    { name: "Settings",          path: "/settings",        icon: Settings },
   ];
 
   const candidateLinks = [
@@ -43,7 +44,6 @@ export default function Sidebar() {
           </span>
         </div>
       </div>
-
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto mt-2">
         {links.map((link) => (
           <NavLink
@@ -64,7 +64,6 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
-
       <div className="p-4 border-t border-slate-100 dark:border-slate-800">
         <div className="flex items-center p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 mb-3">
           <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold mr-3">

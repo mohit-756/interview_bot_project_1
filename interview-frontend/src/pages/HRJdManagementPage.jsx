@@ -4,7 +4,6 @@ import { Search, Plus, ChevronLeft, ChevronRight, Eye, Edit2, Trash2, MoreVertic
 import MetricCard from "../components/MetricCard";
 import { hrApi } from "../services/api";
 
-// ── Editable Skills Table ─────────────────────────────────────────────────────
 function SkillsEditor({ skills, onChange }) {
   function updateWeight(skill, value) {
     onChange({ ...skills, [skill]: Math.max(1, Math.min(10, Number(value) || 1)) });
@@ -18,14 +17,13 @@ function SkillsEditor({ skills, onChange }) {
     const name = prompt("Skill name (e.g. python, react, sql):")?.trim().toLowerCase();
     if (name && !skills[name]) onChange({ ...skills, [name]: 5 });
   }
-
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
             <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Skill</th>
-            <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Weight (1–10)</th>
+            <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Weight (1-10)</th>
             <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-16">Remove</th>
           </tr>
         </thead>
@@ -34,15 +32,12 @@ function SkillsEditor({ skills, onChange }) {
             <tr key={skill} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
               <td className="px-4 py-2.5 font-medium text-slate-900 dark:text-white capitalize">{skill}</td>
               <td className="px-4 py-2.5 text-center">
-                <input
-                  type="number" min={1} max={10} value={weight}
+                <input type="number" min={1} max={10} value={weight}
                   onChange={(e) => updateWeight(skill, e.target.value)}
-                  className="w-16 text-center px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white"
-                />
+                  className="w-16 text-center px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
               </td>
               <td className="px-4 py-2.5 text-center">
-                <button onClick={() => removeSkill(skill)}
-                  className="p-1 text-slate-400 hover:text-red-500 transition-colors rounded">
+                <button onClick={() => removeSkill(skill)} className="p-1 text-slate-400 hover:text-red-500 transition-colors rounded">
                   <X size={16} />
                 </button>
               </td>
@@ -52,8 +47,7 @@ function SkillsEditor({ skills, onChange }) {
         <tfoot>
           <tr className="border-t border-slate-100 dark:border-slate-800">
             <td colSpan={3} className="px-4 py-2.5">
-              <button onClick={addSkill}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center gap-1">
+              <button onClick={addSkill} className="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center gap-1">
                 <Plus size={14} />Add skill manually
               </button>
             </td>
@@ -64,13 +58,21 @@ function SkillsEditor({ skills, onChange }) {
   );
 }
 
-// ── JD Form ───────────────────────────────────────────────────────────────────
+// PHASE 1 FIX: Added education_requirement, experience_requirement,
+// min_academic_percent, project_question_ratio — previously hardcoded to defaults.
 function JdForm({ initialData, onSave, onCancel }) {
   const [title, setTitle] = useState(initialData?.title || "");
   const [jdText, setJdText] = useState(initialData?.jd_text || "");
   const [qualifyScore, setQualifyScore] = useState(initialData?.qualify_score ?? 65);
   const [totalQuestions, setTotalQuestions] = useState(initialData?.total_questions ?? 8);
   const [skills, setSkills] = useState(initialData?.weights_json || {});
+  // NEW: previously hardcoded fields now exposed as form controls
+  const [educationRequirement, setEducationRequirement] = useState(initialData?.education_requirement || "");
+  const [experienceRequirement, setExperienceRequirement] = useState(initialData?.experience_requirement ?? 0);
+  const [minAcademicPercent, setMinAcademicPercent] = useState(initialData?.min_academic_percent ?? 0);
+  const [projectQuestionRatioPct, setProjectQuestionRatioPct] = useState(
+    initialData?.project_question_ratio != null ? Math.round(initialData.project_question_ratio * 100) : 80
+  );
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -82,35 +84,40 @@ function JdForm({ initialData, onSave, onCancel }) {
     setUploading(true); setError("");
     try {
       const result = await hrApi.uploadJd(file);
-      // Backend now returns LLM-extracted skills
-      if (result.ai_skills && Object.keys(result.ai_skills).length > 0) {
-        setSkills(result.ai_skills);
-      }
+      if (result.ai_skills && Object.keys(result.ai_skills).length > 0) setSkills(result.ai_skills);
       if (result.jd_title && !title) setTitle(result.jd_title);
-    } catch (e) { setError(e.message); }
+    } catch (err) { setError(err.message); }
     finally { setUploading(false); e.target.value = ""; }
   }
 
   async function handleSave() {
     if (!title.trim()) { setError("Title is required."); return; }
-    if (!jdText.trim() && !Object.keys(skills).length) { setError("Add JD text or upload a file."); return; }
+    if (!jdText.trim() && !Object.keys(skills).length) { setError("Add JD text or upload a file first."); return; }
     setSaving(true); setError("");
     try {
-      const payload = { title: title.trim(), jd_text: jdText.trim() || title, weights_json: skills, qualify_score: Number(qualifyScore), total_questions: Number(totalQuestions), min_academic_percent: 0, project_question_ratio: 0.8 };
+      const payload = {
+        title: title.trim(),
+        jd_text: jdText.trim() || title,
+        weights_json: skills,
+        qualify_score: Number(qualifyScore),
+        total_questions: Number(totalQuestions),
+        // PHASE 1 FIX: real values instead of hardcoded defaults
+        education_requirement: educationRequirement.trim() || null,
+        experience_requirement: Number(experienceRequirement) || 0,
+        min_academic_percent: Number(minAcademicPercent) || 0,
+        project_question_ratio: Math.max(0, Math.min(1, Number(projectQuestionRatioPct) / 100)),
+      };
       if (isEdit) { await hrApi.updateJd(initialData.id, payload); }
       else { await hrApi.createJd(payload); }
       onSave();
-    } catch (e) { setError(e.message); }
+    } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   }
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8 space-y-6">
       <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{isEdit ? "Edit Job Description" : "Create Job Description"}</h2>
-
       {error && <p className="alert error">{error}</p>}
-
-      {/* File upload */}
       {!isEdit && (
         <div>
           <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Upload JD file (PDF / DOCX / TXT)</p>
@@ -126,8 +133,6 @@ function JdForm({ initialData, onSave, onCancel }) {
           </label>
         </div>
       )}
-
-      {/* Title + config */}
       <div className="grid md:grid-cols-3 gap-4">
         <div className="md:col-span-1">
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Job Title *</label>
@@ -145,15 +150,47 @@ function JdForm({ initialData, onSave, onCancel }) {
             className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
         </div>
       </div>
-
-      {/* JD text */}
+      {/* PHASE 1 FIX: Candidate requirement fields */}
+      <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Candidate Requirements</p>
+        <div className="grid md:grid-cols-4 gap-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Education Level</label>
+            <select value={educationRequirement} onChange={(e) => setEducationRequirement(e.target.value)}
+              className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white">
+              <option value="">Any / Not required</option>
+              <option value="bachelor">Bachelor's</option>
+              <option value="master">Master's</option>
+              <option value="phd">PhD / Doctorate</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Min Experience (yrs)</label>
+            <input type="number" min={0} max={30} value={experienceRequirement}
+              onChange={(e) => setExperienceRequirement(e.target.value)} placeholder="0 = any"
+              className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Min Academic % (0=off)</label>
+            <input type="number" min={0} max={100} step={5} value={minAcademicPercent}
+              onChange={(e) => setMinAcademicPercent(e.target.value)} placeholder="e.g. 60"
+              className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Project Q Ratio (%)</label>
+            <input type="number" min={0} max={100} step={10} value={projectQuestionRatioPct}
+              onChange={(e) => setProjectQuestionRatioPct(e.target.value)} placeholder="80"
+              className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
+            <p className="text-xs text-slate-400 mt-1">Rest = theory questions</p>
+          </div>
+        </div>
+      </div>
       <div>
         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">JD Text (optional if file uploaded)</label>
-        <textarea rows={5} value={jdText} onChange={(e) => setJdText(e.target.value)} placeholder="Paste job description here, or upload a file above..."
+        <textarea rows={5} value={jdText} onChange={(e) => setJdText(e.target.value)}
+          placeholder="Paste job description here, or upload a file above..."
           className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white resize-none" />
       </div>
-
-      {/* Skills editor */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Skills & Weights</label>
@@ -164,13 +201,10 @@ function JdForm({ initialData, onSave, onCancel }) {
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center">
             <p className="text-sm text-slate-500">Upload a JD file to auto-extract skills, or add them manually.</p>
-            <button onClick={() => setSkills({ "python": 5 })}
-              className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline">Add skill manually</button>
+            <button onClick={() => setSkills({ "python": 5 })} className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline">Add skill manually</button>
           </div>
         )}
       </div>
-
-      {/* Actions */}
       <div className="flex items-center gap-3 pt-2">
         <button onClick={handleSave} disabled={saving}
           className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-50 transition-all">
@@ -185,7 +219,6 @@ function JdForm({ initialData, onSave, onCancel }) {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function HRJdManagementPage() {
   const navigate = useNavigate();
   const [jds, setJds] = useState([]);
@@ -226,18 +259,13 @@ export default function HRJdManagementPage() {
   }
 
   async function handleEdit(jdId) {
-    try {
-      const r = await hrApi.getJd(jdId);
-      setEditingJd(r.jd);
-      setShowForm(true);
-      setOpenMenu(null);
-    } catch (e) { setError(e.message); }
+    try { const r = await hrApi.getJd(jdId); setEditingJd(r.jd); setShowForm(true); setOpenMenu(null); }
+    catch (e) { setError(e.message); }
   }
 
   function handleFormSave() {
     setShowForm(false); setEditingJd(null);
-    setMessage("JD saved successfully.");
-    loadJds();
+    setMessage("JD saved successfully."); loadJds();
   }
 
   if (loading && !jds.length) return <p className="center muted py-12">Loading JDs...</p>;
@@ -247,34 +275,23 @@ export default function HRJdManagementPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display">JD Management</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Create and manage job descriptions. Upload PDF/DOCX to auto-extract skills.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Create and manage job descriptions with skill weights, education requirements, and interview config.</p>
         </div>
         <button onClick={() => { setEditingJd(null); setShowForm(true); }}
           className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none">
           <Plus size={20} /><span>Add New JD</span>
         </button>
       </div>
-
       {error && <p className="alert error">{error}</p>}
       {message && <p className="alert success">{message}</p>}
-
-      {/* Metrics */}
       <div className="grid grid-cols-3 gap-4">
         <MetricCard title="Total JDs" value={jds.length} color="blue" />
         <MetricCard title="Avg Qualify Score" value={jds.length ? `${Math.round(jds.reduce((s, j) => s + Number(j.qualify_score || 0), 0) / jds.length)}%` : "—"} color="green" />
         <MetricCard title="Avg Questions" value={jds.length ? (jds.reduce((s, j) => s + Number(j.total_questions || 0), 0) / jds.length).toFixed(1) : "—"} color="purple" />
       </div>
-
-      {/* Form */}
       {showForm && (
-        <JdForm
-          initialData={editingJd}
-          onSave={handleFormSave}
-          onCancel={() => { setShowForm(false); setEditingJd(null); }}
-        />
+        <JdForm initialData={editingJd} onSave={handleFormSave} onCancel={() => { setShowForm(false); setEditingJd(null); }} />
       )}
-
-      {/* Search */}
       <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -282,8 +299,6 @@ export default function HRJdManagementPage() {
             className="w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
         </div>
       </div>
-
-      {/* Table */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
@@ -293,13 +308,14 @@ export default function HRJdManagementPage() {
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Title</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Skills</th>
                 <th className="px-6 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Qualify</th>
+                <th className="px-6 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Exp</th>
                 <th className="px-6 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Questions</th>
                 <th className="px-6 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {!paged.length ? (
-                <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-500">No JDs found. Create one to get started.</td></tr>
+                <tr><td colSpan={7} className="px-6 py-12 text-center text-slate-500">No JDs found. Create one to get started.</td></tr>
               ) : paged.map((jd) => (
                 <tr key={jd.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-all">
                   <td className="px-6 py-4 text-xs font-bold text-slate-400">{jd.id}</td>
@@ -310,18 +326,17 @@ export default function HRJdManagementPage() {
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(jd.weights_json || {}).slice(0, 4).map(([skill, w]) => (
-                        <span key={skill} className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded text-xs font-medium">
-                          {skill} ({w})
-                        </span>
+                        <span key={skill} className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded text-xs font-medium">{skill} ({w})</span>
                       ))}
                       {Object.keys(jd.weights_json || {}).length > 4 && (
-                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded text-xs">
-                          +{Object.keys(jd.weights_json).length - 4} more
-                        </span>
+                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded text-xs">+{Object.keys(jd.weights_json).length - 4} more</span>
                       )}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center font-semibold text-slate-900 dark:text-white">{jd.qualify_score}%</td>
+                  <td className="px-6 py-4 text-center text-xs text-slate-600 dark:text-slate-300">
+                    {jd.experience_requirement > 0 ? `${jd.experience_requirement}+ yrs` : <span className="text-slate-400">Any</span>}
+                  </td>
                   <td className="px-6 py-4 text-center font-semibold text-slate-900 dark:text-white">{jd.total_questions}</td>
                   <td className="px-6 py-4 text-right relative">
                     <button onClick={() => setOpenMenu(openMenu === jd.id ? null : jd.id)}
@@ -330,18 +345,9 @@ export default function HRJdManagementPage() {
                     </button>
                     {openMenu === jd.id && (
                       <div className="absolute right-6 mt-2 w-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg z-10 overflow-hidden">
-                        <button onClick={() => navigate(`/hr/jds/${jd.id}`)}
-                          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
-                          <Eye size={15} />View
-                        </button>
-                        <button onClick={() => handleEdit(jd.id)}
-                          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
-                          <Edit2 size={15} />Edit
-                        </button>
-                        <button onClick={() => handleDelete(jd.id)} disabled={deletingId === jd.id}
-                          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-60">
-                          <Trash2 size={15} />{deletingId === jd.id ? "Deleting..." : "Delete"}
-                        </button>
+                        <button onClick={() => navigate(`/hr/jds/${jd.id}`)} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"><Eye size={15} />View</button>
+                        <button onClick={() => handleEdit(jd.id)} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"><Edit2 size={15} />Edit</button>
+                        <button onClick={() => handleDelete(jd.id)} disabled={deletingId === jd.id} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-60"><Trash2 size={15} />{deletingId === jd.id ? "Deleting..." : "Delete"}</button>
                       </div>
                     )}
                   </td>
@@ -353,15 +359,9 @@ export default function HRJdManagementPage() {
         <div className="p-5 bg-slate-50/30 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <p className="text-sm text-slate-500">Showing {paged.length} of {filtered.length}</p>
           <div className="flex items-center gap-2">
-            <button disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all">
-              <ChevronLeft size={18} />
-            </button>
+            <button disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all"><ChevronLeft size={18} /></button>
             <span className="text-sm font-bold text-slate-900 dark:text-white px-2">Page {page} of {totalPages}</span>
-            <button disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all">
-              <ChevronRight size={18} />
-            </button>
+            <button disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all"><ChevronRight size={18} /></button>
           </div>
         </div>
       </div>
