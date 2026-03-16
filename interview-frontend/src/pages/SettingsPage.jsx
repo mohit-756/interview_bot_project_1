@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  User, Lock, Bell, Moon, Sun, Shield, LogOut, Camera,
+  Lock, Bell, Moon, Sun, Shield, LogOut, Camera,
   CheckCircle2, Eye, EyeOff, Save, Monitor, Smartphone,
-  Mail, Toggle, AlertCircle, Loader2
+  ToggleLeft, AlertCircle, Loader2, User, Mail
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import { authApi } from "../services/api";
