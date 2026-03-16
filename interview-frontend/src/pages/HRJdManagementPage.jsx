@@ -1,569 +1,370 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  FileText, Plus, Upload, Trash2, Edit2, CheckCircle2,
-  ChevronRight, Loader2, X, Sparkles, AlertCircle, Save,
-  RotateCcw, FileUp, Hash, Percent, HelpCircle
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Search, Plus, ChevronLeft, ChevronRight, Eye, Edit2, Trash2, MoreVertical, Upload, Loader2, X } from "lucide-react";
+import MetricCard from "../components/MetricCard";
 import { hrApi } from "../services/api";
 
-// ─── Skill row editor ──────────────────────────────────────────────────────────
-function SkillRow({ skill, weight, onWeight, onRemove }) {
+// ── Editable Skills Table ─────────────────────────────────────────────────────
+function SkillsEditor({ skills, onChange }) {
+  function updateWeight(skill, value) {
+    onChange({ ...skills, [skill]: Math.max(1, Math.min(10, Number(value) || 1)) });
+  }
+  function removeSkill(skill) {
+    const next = { ...skills };
+    delete next[skill];
+    onChange(next);
+  }
+  function addSkill() {
+    const name = prompt("Skill name (e.g. python, react, sql):")?.trim().toLowerCase();
+    if (name && !skills[name]) onChange({ ...skills, [name]: 5 });
+  }
+
   return (
-    <div className="flex items-center gap-3 group">
-      <div className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-medium text-slate-900 dark:text-white capitalize border border-slate-100 dark:border-slate-700">
-        {skill}
-      </div>
-      <div className="flex items-center gap-1">
-        {[1,2,3,4,5,6,7,8,9,10].map((n) => (
-          <button
-            key={n}
-            onClick={() => onWeight(skill, n)}
-            className={`w-6 h-6 rounded text-xs font-bold transition-all ${
-              n <= weight
-                ? "bg-blue-600 text-white shadow-sm shadow-blue-200"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
-            }`}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-      <button
-        onClick={() => onRemove(skill)}
-        className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-all rounded"
-      >
-        <X size={14} />
-      </button>
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+            <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Skill</th>
+            <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Weight (1–10)</th>
+            <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-16">Remove</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          {Object.entries(skills).map(([skill, weight]) => (
+            <tr key={skill} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+              <td className="px-4 py-2.5 font-medium text-slate-900 dark:text-white capitalize">{skill}</td>
+              <td className="px-4 py-2.5 text-center">
+                <input
+                  type="number" min={1} max={10} value={weight}
+                  onChange={(e) => updateWeight(skill, e.target.value)}
+                  className="w-16 text-center px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white"
+                />
+              </td>
+              <td className="px-4 py-2.5 text-center">
+                <button onClick={() => removeSkill(skill)}
+                  className="p-1 text-slate-400 hover:text-red-500 transition-colors rounded">
+                  <X size={16} />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-slate-100 dark:border-slate-800">
+            <td colSpan={3} className="px-4 py-2.5">
+              <button onClick={addSkill}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center gap-1">
+                <Plus size={14} />Add skill manually
+              </button>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }
 
-// ─── JD Card in the list ─────────────────────────────────────────────────────
-function JdCard({ jd, isSelected, onSelect, onDelete, deleting }) {
-  const skillCount = Object.keys(jd.weights_json || {}).length;
-  return (
-    <div
-      onClick={() => onSelect(jd)}
-      className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-        isSelected
-          ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md shadow-blue-100 dark:shadow-none"
-          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className={`text-sm font-bold truncate ${isSelected ? "text-blue-700 dark:text-blue-300" : "text-slate-900 dark:text-white"}`}>
-            {jd.title}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            {skillCount} skill{skillCount !== 1 ? "s" : ""} · {jd.qualify_score}% cutoff · {jd.total_questions}Q
-          </p>
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {isSelected && <ChevronRight size={14} className="text-blue-500" />}
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(jd.id); }}
-            disabled={deleting === jd.id}
-            className="p-1 text-slate-300 hover:text-red-500 disabled:opacity-40 transition-colors rounded"
-          >
-            {deleting === jd.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
-export default function HRJdManagementPage() {
-  const [jds, setJds] = useState([]);
-  const [loadingList, setLoadingList] = useState(true);
+// ── JD Form ───────────────────────────────────────────────────────────────────
+function JdForm({ initialData, onSave, onCancel }) {
+  const [title, setTitle] = useState(initialData?.title || "");
+  const [jdText, setJdText] = useState(initialData?.jd_text || "");
+  const [qualifyScore, setQualifyScore] = useState(initialData?.qualify_score ?? 65);
+  const [totalQuestions, setTotalQuestions] = useState(initialData?.total_questions ?? 8);
+  const [skills, setSkills] = useState(initialData?.weights_json || {});
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [extracting, setExtracting] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const isEdit = Boolean(initialData?.id);
 
-  // Form state
-  const [editingId, setEditingId] = useState(null); // null = new
-  const [title, setTitle] = useState("");
-  const [jdText, setJdText] = useState("");
-  const [skills, setSkills] = useState({});
-  const [qualifyScore, setQualifyScore] = useState(65);
-  const [totalQuestions, setTotalQuestions] = useState(8);
-  const [newSkill, setNewSkill] = useState("");
-  const [isDirty, setIsDirty] = useState(false);
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setError("");
+    try {
+      const result = await hrApi.uploadJd(file);
+      // Backend now returns LLM-extracted skills
+      if (result.ai_skills && Object.keys(result.ai_skills).length > 0) {
+        setSkills(result.ai_skills);
+      }
+      if (result.jd_title && !title) setTitle(result.jd_title);
+    } catch (e) { setError(e.message); }
+    finally { setUploading(false); e.target.value = ""; }
+  }
 
-  const selectedJd = editingId ? jds.find((j) => j.id === editingId) : null;
+  async function handleSave() {
+    if (!title.trim()) { setError("Title is required."); return; }
+    if (!jdText.trim() && !Object.keys(skills).length) { setError("Add JD text or upload a file."); return; }
+    setSaving(true); setError("");
+    try {
+      const payload = { title: title.trim(), jd_text: jdText.trim() || title, weights_json: skills, qualify_score: Number(qualifyScore), total_questions: Number(totalQuestions), min_academic_percent: 0, project_question_ratio: 0.8 };
+      if (isEdit) { await hrApi.updateJd(initialData.id, payload); }
+      else { await hrApi.createJd(payload); }
+      onSave();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8 space-y-6">
+      <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{isEdit ? "Edit Job Description" : "Create Job Description"}</h2>
+
+      {error && <p className="alert error">{error}</p>}
+
+      {/* File upload */}
+      {!isEdit && (
+        <div>
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Upload JD file (PDF / DOCX / TXT)</p>
+          <label className={`flex items-center gap-3 border-2 border-dashed rounded-2xl p-5 cursor-pointer transition-all ${uploading ? "border-blue-400 bg-blue-50/30" : "border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:bg-blue-50/20"}`}>
+            <input type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+            {uploading ? <Loader2 size={20} className="text-blue-500 animate-spin flex-shrink-0" /> : <Upload size={20} className="text-slate-400 flex-shrink-0" />}
+            <div>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                {uploading ? "Extracting skills with AI..." : "Click to upload — skills auto-extracted by AI"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">or fill the fields manually below</p>
+            </div>
+          </label>
+        </div>
+      )}
+
+      {/* Title + config */}
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="md:col-span-1">
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Job Title *</label>
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Backend Engineer"
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Qualify Score (%)</label>
+          <input type="number" min={0} max={100} value={qualifyScore} onChange={(e) => setQualifyScore(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">No. of Questions</label>
+          <input type="number" min={1} max={20} value={totalQuestions} onChange={(e) => setTotalQuestions(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
+        </div>
+      </div>
+
+      {/* JD text */}
+      <div>
+        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">JD Text (optional if file uploaded)</label>
+        <textarea rows={5} value={jdText} onChange={(e) => setJdText(e.target.value)} placeholder="Paste job description here, or upload a file above..."
+          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white resize-none" />
+      </div>
+
+      {/* Skills editor */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Skills & Weights</label>
+          <span className="text-xs text-slate-400">{Object.keys(skills).length} skills</span>
+        </div>
+        {Object.keys(skills).length > 0 ? (
+          <SkillsEditor skills={skills} onChange={setSkills} />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center">
+            <p className="text-sm text-slate-500">Upload a JD file to auto-extract skills, or add them manually.</p>
+            <button onClick={() => setSkills({ "python": 5 })}
+              className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline">Add skill manually</button>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 pt-2">
+        <button onClick={handleSave} disabled={saving}
+          className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-50 transition-all">
+          {saving ? "Saving..." : isEdit ? "Update JD" : "Create JD"}
+        </button>
+        <button onClick={onCancel}
+          className="px-6 py-3 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function HRJdManagementPage() {
+  const navigate = useNavigate();
+  const [jds, setJds] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [showForm, setShowForm] = useState(false);
+  const [editingJd, setEditingJd] = useState(null);
+  const [openMenu, setOpenMenu] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const PAGE_SIZE = 10;
 
   const loadJds = useCallback(async () => {
-    try {
-      const r = await hrApi.listJds();
-      setJds(r?.jds || []);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoadingList(false);
-    }
+    setLoading(true); setError("");
+    try { const r = await hrApi.listJds(); setJds(r?.jds || []); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadJds(); }, [loadJds]);
 
-  function resetForm() {
-    setEditingId(null);
-    setTitle("");
-    setJdText("");
-    setSkills({});
-    setQualifyScore(65);
-    setTotalQuestions(8);
-    setIsDirty(false);
-    setError("");
-  }
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return !q ? jds : jds.filter((j) => [j.title, String(j.id)].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [jds, search]);
 
-  function loadJdIntoForm(jd) {
-    setEditingId(jd.id);
-    setTitle(jd.title || "");
-    setJdText(jd.jd_text || "");
-    setSkills(jd.weights_json || {});
-    setQualifyScore(jd.qualify_score ?? 65);
-    setTotalQuestions(jd.total_questions ?? 8);
-    setIsDirty(false);
-    setError("");
-    setSuccess("");
-  }
-
-  // ── File upload → LLM extraction ──────────────────────────────────────────
-  async function handleFileUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setExtracting(true);
-    setError("");
-    setSuccess("");
-    try {
-      const result = await hrApi.uploadJd(file);
-      if (result.ai_skills && Object.keys(result.ai_skills).length > 0) {
-        setSkills(result.ai_skills);
-        setSuccess(`AI extracted ${Object.keys(result.ai_skills).length} skills from the file.`);
-        setIsDirty(true);
-      }
-      if (result.jd_title && !title) setTitle(result.jd_title);
-      if (result.jd_text) setJdText(result.jd_text);
-    } catch (e) {
-      setError("Extraction failed: " + e.message);
-    } finally {
-      setExtracting(false);
-      e.target.value = "";
-    }
-  }
-
-  // ── Re-extract from pasted text ───────────────────────────────────────────
-  async function handleExtractFromText() {
-    if (!jdText.trim()) { setError("Paste JD text first."); return; }
-    setExtracting(true);
-    setError("");
-    try {
-      const fakeFile = new Blob([jdText], { type: "text/plain" });
-      const formData = new FormData();
-      formData.append("jd_file", fakeFile, "jd.txt");
-      const result = await hrApi.uploadJd(fakeFile.constructor === Blob
-        ? (() => { const f = new File([jdText], "jd.txt", { type: "text/plain" }); return f; })()
-        : fakeFile);
-      if (result.ai_skills && Object.keys(result.ai_skills).length > 0) {
-        setSkills(result.ai_skills);
-        setSuccess(`AI extracted ${Object.keys(result.ai_skills).length} skills from your text.`);
-        setIsDirty(true);
-      }
-    } catch (e) {
-      setError("Extraction failed: " + e.message);
-    } finally {
-      setExtracting(false);
-    }
-  }
-
-  // ── Skill editing ────────────────────────────────────────────────────────
-  function handleWeight(skill, w) {
-    setSkills((p) => ({ ...p, [skill]: w }));
-    setIsDirty(true);
-  }
-  function handleRemoveSkill(skill) {
-    setSkills((p) => { const n = { ...p }; delete n[skill]; return n; });
-    setIsDirty(true);
-  }
-  function handleAddSkill() {
-    const s = newSkill.trim().toLowerCase();
-    if (!s || skills[s] !== undefined) return;
-    setSkills((p) => ({ ...p, [s]: 5 }));
-    setNewSkill("");
-    setIsDirty(true);
-  }
-
-  // ── Save ─────────────────────────────────────────────────────────────────
-  async function handleSave() {
-    if (!title.trim()) { setError("Job title is required."); return; }
-    if (!Object.keys(skills).length && !jdText.trim()) {
-      setError("Add at least one skill or some JD text.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    setSuccess("");
-    try {
-      const payload = {
-        title: title.trim(),
-        jd_text: jdText.trim() || title.trim(),
-        weights_json: skills,
-        qualify_score: Number(qualifyScore),
-        total_questions: Number(totalQuestions),
-        min_academic_percent: 0,
-        project_question_ratio: 0.8,
-      };
-      if (editingId) {
-        await hrApi.updateJd(editingId, payload);
-        setSuccess("JD updated successfully.");
-      } else {
-        await hrApi.createJd(payload);
-        setSuccess("JD created successfully.");
-        resetForm();
-      }
-      setIsDirty(false);
-      await loadJds();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   async function handleDelete(jdId) {
-    if (!confirm("Delete this JD? This cannot be undone.")) return;
-    setDeletingId(jdId);
-    try {
-      await hrApi.deleteJd(jdId);
-      if (editingId === jdId) resetForm();
-      await loadJds();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setDeletingId(null);
-    }
+    if (!confirm("Delete this JD?")) return;
+    setDeletingId(jdId); setError(""); setMessage("");
+    try { await hrApi.deleteJd(jdId); await loadJds(); setMessage("JD deleted."); setOpenMenu(null); }
+    catch (e) { setError(e.message); }
+    finally { setDeletingId(null); }
   }
 
-  const skillEntries = Object.entries(skills).sort((a, b) => b[1] - a[1]);
-  const isNewForm = !editingId;
+  async function handleEdit(jdId) {
+    try {
+      const r = await hrApi.getJd(jdId);
+      setEditingJd(r.jd);
+      setShowForm(true);
+      setOpenMenu(null);
+    } catch (e) { setError(e.message); }
+  }
+
+  function handleFormSave() {
+    setShowForm(false); setEditingJd(null);
+    setMessage("JD saved successfully.");
+    loadJds();
+  }
+
+  if (loading && !jds.length) return <p className="center muted py-12">Loading JDs...</p>;
 
   return (
-    <div className="h-full flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-            Job Descriptions
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Upload a JD file or paste text — AI extracts skills automatically.
-          </p>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display">JD Management</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Create and manage job descriptions. Upload PDF/DOCX to auto-extract skills.</p>
         </div>
-        <button
-          onClick={resetForm}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-lg shadow-blue-200 dark:shadow-none transition-all"
-        >
-          <Plus size={16} />
-          New JD
+        <button onClick={() => { setEditingJd(null); setShowForm(true); }}
+          className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none">
+          <Plus size={20} /><span>Add New JD</span>
         </button>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 min-h-0">
+      {error && <p className="alert error">{error}</p>}
+      {message && <p className="alert success">{message}</p>}
 
-        {/* ── Left: JD list ──────────────────────────────────────────────── */}
-        <div className="space-y-3 overflow-y-auto">
-          {loadingList ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="animate-spin text-slate-400" size={24} />
-            </div>
-          ) : !jds.length ? (
-            <div className="text-center py-12 text-slate-400">
-              <FileText size={32} className="mx-auto mb-3 opacity-40" />
-              <p className="text-sm">No JDs yet. Create your first one →</p>
-            </div>
-          ) : (
-            <>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">
-                {jds.length} Job Description{jds.length !== 1 ? "s" : ""}
-              </p>
-              {jds.map((jd) => (
-                <JdCard
-                  key={jd.id}
-                  jd={jd}
-                  isSelected={editingId === jd.id}
-                  onSelect={loadJdIntoForm}
-                  onDelete={handleDelete}
-                  deleting={deletingId}
-                />
-              ))}
-            </>
-          )}
+      {/* Metrics */}
+      <div className="grid grid-cols-3 gap-4">
+        <MetricCard title="Total JDs" value={jds.length} color="blue" />
+        <MetricCard title="Avg Qualify Score" value={jds.length ? `${Math.round(jds.reduce((s, j) => s + Number(j.qualify_score || 0), 0) / jds.length)}%` : "—"} color="green" />
+        <MetricCard title="Avg Questions" value={jds.length ? (jds.reduce((s, j) => s + Number(j.total_questions || 0), 0) / jds.length).toFixed(1) : "—"} color="purple" />
+      </div>
+
+      {/* Form */}
+      {showForm && (
+        <JdForm
+          initialData={editingJd}
+          onSave={handleFormSave}
+          onCancel={() => { setShowForm(false); setEditingJd(null); }}
+        />
+      )}
+
+      {/* Search */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <input type="text" placeholder="Search JDs by title or ID..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white" />
         </div>
+      </div>
 
-        {/* ── Right: form ────────────────────────────────────────────────── */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-y-auto">
-
-          {/* Form header */}
-          <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-8 py-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`w-2.5 h-2.5 rounded-full ${isNewForm ? "bg-blue-500" : "bg-emerald-500"}`} />
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                {isNewForm ? "Create new JD" : `Editing — ${selectedJd?.title || "JD"}`}
-              </h2>
-              {isDirty && (
-                <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
-                  Unsaved changes
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {editingId && (
-                <button
-                  onClick={resetForm}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium transition-all"
-                >
-                  <RotateCcw size={14} />
-                  New
-                </button>
-              )}
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold transition-all"
-              >
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                {saving ? "Saving..." : editingId ? "Update JD" : "Create JD"}
-              </button>
-            </div>
-          </div>
-
-          <div className="p-8 space-y-8">
-            {error && (
-              <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl text-sm text-red-700 dark:text-red-400">
-                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                {error}
-              </div>
-            )}
-            {success && (
-              <div className="flex items-start gap-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-sm text-emerald-700 dark:text-emerald-400">
-                <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
-                {success}
-              </div>
-            )}
-
-            {/* ── Section 1: Basic info ────────────────────────────────── */}
-            <div className="space-y-4">
-              <SectionLabel icon={<FileText size={14} />} label="Job details" />
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Job Title *
-                </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => { setTitle(e.target.value); setIsDirty(true); }}
-                  placeholder="e.g. Senior Backend Engineer"
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white transition-all"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <Percent size={11} />
-                    Qualify Score
-                    <Tooltip text="Minimum resume match % to shortlist a candidate" />
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number" min={0} max={100}
-                      value={qualifyScore}
-                      onChange={(e) => { setQualifyScore(e.target.value); setIsDirty(true); }}
-                      className="w-full px-4 py-3 pr-10 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <Hash size={11} />
-                    No. of Questions
-                    <Tooltip text="How many questions to ask in the interview" />
-                  </label>
-                  <input
-                    type="number" min={1} max={20}
-                    value={totalQuestions}
-                    onChange={(e) => { setTotalQuestions(e.target.value); setIsDirty(true); }}
-                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── Section 2: JD text + file upload ──────────────────────── */}
-            <div className="space-y-4">
-              <SectionLabel icon={<FileUp size={14} />} label="Job description text" />
-
-              {/* File upload zone */}
-              <label className={`flex items-center gap-4 p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
-                extracting
-                  ? "border-blue-400 bg-blue-50/40 dark:bg-blue-900/10"
-                  : "border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:bg-blue-50/20 dark:hover:bg-blue-900/10"
-              }`}>
-                <input type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={handleFileUpload} disabled={extracting} />
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                  extracting ? "bg-blue-100 dark:bg-blue-900/30" : "bg-slate-100 dark:bg-slate-800"
-                }`}>
-                  {extracting
-                    ? <Loader2 size={18} className="text-blue-600 animate-spin" />
-                    : <Upload size={18} className="text-slate-500" />
-                  }
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900 dark:text-white">
-                    {extracting ? "Extracting skills with AI..." : "Upload JD file"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    PDF, DOCX, or TXT · AI will auto-extract skills and weights
-                  </p>
-                </div>
-                {!extracting && (
-                  <span className="ml-auto flex-shrink-0 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300">
-                    Browse
-                  </span>
-                )}
-              </label>
-
-              {/* Divider */}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
-                <span className="text-xs text-slate-400 font-medium">or paste text</span>
-                <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
-              </div>
-
-              {/* Text area + extract button */}
-              <div className="space-y-2">
-                <textarea
-                  rows={5}
-                  value={jdText}
-                  onChange={(e) => { setJdText(e.target.value); setIsDirty(true); }}
-                  placeholder="Paste your full job description here..."
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white resize-none transition-all"
-                />
-                <button
-                  onClick={handleExtractFromText}
-                  disabled={extracting || !jdText.trim()}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-sm font-bold disabled:opacity-40 transition-all border border-purple-200 dark:border-purple-800"
-                >
-                  <Sparkles size={14} />
-                  {extracting ? "Extracting..." : "Extract skills from text"}
-                </button>
-              </div>
-            </div>
-
-            {/* ── Section 3: Skills editor ─────────────────────────────── */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <SectionLabel icon={<Sparkles size={14} />} label="Skills & importance weights" />
-                <span className="text-xs text-slate-400">
-                  {skillEntries.length} skill{skillEntries.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-
-              {skillEntries.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-8 text-center">
-                  <Sparkles size={24} className="mx-auto mb-3 text-slate-300" />
-                  <p className="text-sm text-slate-400">
-                    No skills yet — upload a file or paste JD text and click "Extract skills"
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between px-1 pb-1">
-                    <span className="text-xs text-slate-400">Skill</span>
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
-                      Importance
-                      <Tooltip text="1 = nice to have, 10 = must have. Affects resume match score." />
+      {/* Table */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">ID</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Title</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Skills</th>
+                <th className="px-6 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Qualify</th>
+                <th className="px-6 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Questions</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+              {!paged.length ? (
+                <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-500">No JDs found. Create one to get started.</td></tr>
+              ) : paged.map((jd) => (
+                <tr key={jd.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-all">
+                  <td className="px-6 py-4 text-xs font-bold text-slate-400">{jd.id}</td>
+                  <td className="px-6 py-4">
+                    <p className="font-bold text-slate-900 dark:text-white">{jd.title}</p>
+                    <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{jd.jd_text?.substring(0, 80)}...</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(jd.weights_json || {}).slice(0, 4).map(([skill, w]) => (
+                        <span key={skill} className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded text-xs font-medium">
+                          {skill} ({w})
+                        </span>
+                      ))}
+                      {Object.keys(jd.weights_json || {}).length > 4 && (
+                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded text-xs">
+                          +{Object.keys(jd.weights_json).length - 4} more
+                        </span>
+                      )}
                     </div>
-                  </div>
-                  {skillEntries.map(([skill, weight]) => (
-                    <SkillRow
-                      key={skill}
-                      skill={skill}
-                      weight={weight}
-                      onWeight={handleWeight}
-                      onRemove={handleRemoveSkill}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Add skill manually */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newSkill}
-                  onChange={(e) => setNewSkill(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddSkill()}
-                  placeholder="Add a skill manually (e.g. python, docker, sql)"
-                  className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm dark:text-white"
-                />
-                <button
-                  onClick={handleAddSkill}
-                  disabled={!newSkill.trim()}
-                  className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-bold disabled:opacity-40 transition-all"
-                >
-                  <Plus size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* ── Save button at bottom ──────────────────────────────── */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
-              <p className="text-xs text-slate-400">
-                {editingId ? `Editing JD #${editingId}` : "New JD — will be saved to the list"}
-              </p>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold transition-all shadow-lg shadow-blue-100 dark:shadow-none"
-              >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                {saving ? "Saving..." : editingId ? "Update JD" : "Create JD"}
-              </button>
-            </div>
+                  </td>
+                  <td className="px-6 py-4 text-center font-semibold text-slate-900 dark:text-white">{jd.qualify_score}%</td>
+                  <td className="px-6 py-4 text-center font-semibold text-slate-900 dark:text-white">{jd.total_questions}</td>
+                  <td className="px-6 py-4 text-right relative">
+                    <button onClick={() => setOpenMenu(openMenu === jd.id ? null : jd.id)}
+                      className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all">
+                      <MoreVertical size={18} />
+                    </button>
+                    {openMenu === jd.id && (
+                      <div className="absolute right-6 mt-2 w-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg z-10 overflow-hidden">
+                        <button onClick={() => navigate(`/hr/jds/${jd.id}`)}
+                          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
+                          <Eye size={15} />View
+                        </button>
+                        <button onClick={() => handleEdit(jd.id)}
+                          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
+                          <Edit2 size={15} />Edit
+                        </button>
+                        <button onClick={() => handleDelete(jd.id)} disabled={deletingId === jd.id}
+                          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-60">
+                          <Trash2 size={15} />{deletingId === jd.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-5 bg-slate-50/30 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <p className="text-sm text-slate-500">Showing {paged.length} of {filtered.length}</p>
+          <div className="flex items-center gap-2">
+            <button disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all">
+              <ChevronLeft size={18} />
+            </button>
+            <span className="text-sm font-bold text-slate-900 dark:text-white px-2">Page {page} of {totalPages}</span>
+            <button disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all">
+              <ChevronRight size={18} />
+            </button>
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function SectionLabel({ icon, label }) {
-  return (
-    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
-      <span className="text-slate-400">{icon}</span>
-      {label}
-    </div>
-  );
-}
-
-function Tooltip({ text }) {
-  const [show, setShow] = useState(false);
-  return (
-    <span className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      <HelpCircle size={11} className="text-slate-300 cursor-help" />
-      {show && (
-        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 px-3 py-2 bg-slate-900 dark:bg-slate-700 text-white text-xs rounded-xl shadow-xl z-50 whitespace-normal leading-relaxed">
-          {text}
-        </span>
-      )}
-    </span>
   );
 }

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import InterviewAnswer, InterviewQuestion, InterviewSession, JobDescription, Result
+from models import InterviewAnswer, InterviewQuestion, InterviewSession
 from routes.dependencies import SessionUser, require_role
 from services.llm.client import score_answer
 

@@ -58,6 +58,19 @@ async function attachPreviewStream(videoElement, stream) {
   }
 }
 
+// FIX 1 — Poll until the camera is actually outputting real pixels.
+// Prevents black-frame captures during the camera warmup period.
+function waitForRealFrame(videoElement, onReady) {
+  const check = () => {
+    if (videoElement && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+      onReady();
+    } else {
+      setTimeout(check, 300);
+    }
+  };
+  setTimeout(check, 300);
+}
+
 export default function Interview() {
   const { resultId } = useParams();
   const navigate = useNavigate();
@@ -78,8 +91,9 @@ export default function Interview() {
   const [previewReady, setPreviewReady] = useState(false);
   const [previewWarning, setPreviewWarning] = useState("");
   const [proctorWarning, setProctorWarning] = useState("");
-  // ── NEW: live feedback state
   const [answerFeedback, setAnswerFeedback] = useState(null);
+  // FIX 2 — Gate periodic scans and warning display on baseline success
+  const [baselineDone, setBaselineDone] = useState(false);
 
   const videoRef = useRef(null);
   const autoSubmittedRef = useRef(false);
@@ -106,6 +120,8 @@ export default function Interview() {
 
       setTranscriptionWarning("");
       setSessionId(response.session_id);
+      // Store so Completed.jsx can trigger LLM scoring
+      sessionStorage.setItem(`session-id:${resultId}`, String(response.session_id));
       setCurrentQuestion(response.current_question);
       setQuestionNumber(response.question_number || 1);
       setMaxQuestions(response.max_questions || 1);
@@ -136,6 +152,7 @@ export default function Interview() {
 
     async function startPreview() {
       setPreviewReady(false);
+      setBaselineDone(false);
       setPreviewWarning("");
       if (streamRef.current) { stopStreamTracks(streamRef.current); streamRef.current = null; }
       try {
@@ -143,7 +160,8 @@ export default function Interview() {
         if (disposed) { stream.getTracks().forEach((track) => track.stop()); return; }
         streamRef.current = stream;
         await attachPreviewStream(videoElement, stream);
-        setPreviewReady(true);
+        // FIX 1 — only flip previewReady when real pixels are flowing
+        waitForRealFrame(videoElement, () => { if (!disposed) setPreviewReady(true); });
         return;
       } catch { /* fall back */ }
       try {
@@ -151,7 +169,7 @@ export default function Interview() {
         if (disposed) { videoOnlyStream.getTracks().forEach((track) => track.stop()); return; }
         streamRef.current = videoOnlyStream;
         await attachPreviewStream(videoElement, videoOnlyStream);
-        setPreviewReady(true);
+        waitForRealFrame(videoElement, () => { if (!disposed) setPreviewReady(true); });
         setPreviewWarning("Microphone permission is unavailable. Camera preview is still active.");
       } catch {
         setPreviewWarning("Camera preview is unavailable. Check browser camera permission and device access.");
@@ -177,7 +195,6 @@ export default function Interview() {
   }, [releaseAudioStream]);
 
   useEffect(() => {
-    // Pause the timer while the feedback card is showing
     if (!currentQuestion || loading || isSubmitting || answerFeedback) return;
     const interval = setInterval(() => {
       setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
@@ -186,7 +203,6 @@ export default function Interview() {
     return () => clearInterval(interval);
   }, [currentQuestion, isSubmitting, loading, answerFeedback]);
 
-  // ── NEW: helper to advance to the next question after feedback is dismissed
   const _advanceAfterAnswer = useCallback((response) => {
     if (response.interview_completed || !response.next_question) {
       navigate(`/interview/${resultId}/completed`);
@@ -228,10 +244,9 @@ export default function Interview() {
         { q: currentQuestion.text, a: skipCurrent ? "" : resolvedAnswer },
       ]);
 
-      // ── NEW: show feedback card for non-skipped answers
       if (response.feedback && !skipCurrent && normalizedAnswer) {
         setAnswerFeedback({ ...response.feedback, _nextResponse: response });
-        return; // wait for candidate to click "Next question"
+        return;
       }
 
       _advanceAfterAnswer(response);
@@ -356,10 +371,14 @@ export default function Interview() {
       if (!blob) { setProctorWarning("Webcam frame capture failed. Check camera access and try again."); return; }
       const response = await proctorApi.uploadFrame(sessionId, blob, eventType);
       if (response?.requested_event_type === "baseline") {
-        if (response?.baseline_ready) setProctorWarning("");
-        else if (Array.isArray(response?.frame_reasons) && response.frame_reasons.length)
+        if (response?.baseline_ready) {
+          setProctorWarning("");
+          setBaselineDone(true); // FIX 2 — only unlock scans/warnings after baseline passes
+        } else if (Array.isArray(response?.frame_reasons) && response.frame_reasons.length) {
           setProctorWarning(response.frame_reasons.join(" "));
-        else setProctorWarning("Baseline capture needs a clear single-face webcam frame.");
+        } else {
+          setProctorWarning("Baseline capture needs a clear single-face webcam frame.");
+        }
         return;
       }
       if (response?.paused || response?.warning_triggered || response?.action === "adjust") {
@@ -375,12 +394,14 @@ export default function Interview() {
     }
   }, [sessionId, previewReady]);
 
-  // FIX — add 2s delay
-useEffect(() => {
-  if (!sessionId || !previewReady || baselineCapturedRef.current) return;
-  baselineCapturedRef.current = true;
-  const t = setTimeout(() => void captureAndUploadFrame("baseline"), 2000);
-  return () => clearTimeout(t);}, [sessionId, previewReady, captureAndUploadFrame]);
+  // FIX 1+2 — previewReady is only true after real pixels confirmed (waitForRealFrame).
+  // Additional 2s delay gives hardware extra warmup time.
+  useEffect(() => {
+    if (!sessionId || !previewReady || baselineCapturedRef.current) return;
+    baselineCapturedRef.current = true;
+    const t = setTimeout(() => void captureAndUploadFrame("baseline"), 2000);
+    return () => clearTimeout(t);
+  }, [sessionId, previewReady, captureAndUploadFrame]);
 
   const handleSubmit = useCallback(async (skipCurrent = false) => {
     if (isSubmitting || isTranscribing) return;
@@ -405,18 +426,18 @@ useEffect(() => {
   }, [answer, isRecording, isSubmitting, isTranscribing, stopRecordingAndTranscribe, submitAnswer]);
 
   useEffect(() => {
-    // Don't auto-submit while feedback is showing
     if (!currentQuestion || isSubmitting || isTranscribing || answerFeedback) return;
     if (timeLeft > 0 || autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
     void handleSubmit(false);
   }, [currentQuestion, handleSubmit, isSubmitting, isTranscribing, timeLeft, answerFeedback]);
 
+  // FIX 2 — Periodic scans only start after baseline is confirmed
   useEffect(() => {
-    if (!sessionId || !previewReady) return;
+    if (!sessionId || !previewReady || !baselineDone) return;
     const frameInterval = setInterval(() => { void captureAndUploadFrame("scan"); }, 15000);
     return () => clearInterval(frameInterval);
-  }, [sessionId, previewReady, captureAndUploadFrame]);
+  }, [sessionId, previewReady, baselineDone, captureAndUploadFrame]);
 
   if (loading) return <p className="center muted">Starting interview session...</p>;
   if (error && !currentQuestion) return <p className="alert error">{error}</p>;
@@ -426,9 +447,10 @@ useEffect(() => {
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
         <div className="lg:col-span-2 space-y-6">
           {error ? <p className="alert error">{error}</p> : null}
-          {proctorWarning && !proctorWarning.includes("Baseline") && !proctorWarning.includes("baseline") ? 
-          <p className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 px-4 py-3">{proctorWarning}</p> : null}
-          {/* Progress bar */}
+          {/* FIX 3 — Suppress all warnings until baseline is confirmed */}
+          {proctorWarning && baselineDone && !proctorWarning.includes("Baseline") && !proctorWarning.includes("baseline") ?
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 px-4 py-3">{proctorWarning}</p> : null}
+
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 w-10 h-10 rounded-xl flex items-center justify-center font-bold">
@@ -459,7 +481,6 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Question text */}
           <div className="bg-white dark:bg-slate-900 p-10 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-2 h-full bg-blue-600 transition-all duration-300 group-hover:w-4" />
             <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white font-display leading-tight">
@@ -467,7 +488,6 @@ useEffect(() => {
             </h2>
           </div>
 
-          {/* ── Feedback card OR answer input */}
           {answerFeedback ? (
             <AnswerFeedback
               feedback={answerFeedback}
@@ -550,7 +570,6 @@ useEffect(() => {
           )}
         </div>
 
-        {/* Right panel: camera + session log */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-6 space-y-6">
             <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center">

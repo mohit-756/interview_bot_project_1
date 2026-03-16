@@ -141,6 +141,8 @@ def interview_detail(
                 "allotted_seconds": q.allotted_seconds,
                 "time_taken_seconds": time_taken_seconds,
                 "skipped": q.skipped or (latest_answers[q.id].skipped if q.id in latest_answers else False),
+                "llm_score": q.llm_score,
+                "llm_feedback": q.llm_feedback,
             }
         )
 

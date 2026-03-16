@@ -16,7 +16,6 @@ from ai_engine.phase1.scoring import compute_interview_scoring, compute_resume_s
 from ai_engine.phase1.matching import extract_skills_from_jd, extract_text_from_file
 from database import get_db
 from services.llm.client import extract_skills as llm_extract_skills
-from ai_engine.phase1.matching import extract_text_from_file
 from models import Candidate, InterviewSession, JobDescription, JobDescriptionConfig, Result
 from routes.common import (
     UPLOAD_DIR,
@@ -896,21 +895,22 @@ def upload_jd(
 
     safe_filename = Path(jd_file.filename or "job_description").name
     jd_path = UPLOAD_DIR / f"jd_{current_user.user_id}_{uuid.uuid4().hex}_{safe_filename}"
+
+    # Write file first, fully closed before reading
     with jd_path.open("wb") as buffer:
         shutil.copyfileobj(jd_file.file, buffer)
 
-        jd_raw_text = extract_text_from_file(str(jd_path))
-        ai_skills = llm_extract_skills(jd_raw_text)
-        if not ai_skills:
-            # fallback to hardcoded keyword list if LLM fails
-            extracted_skills = extract_skills_from_jd(str(jd_path))
-            ai_skills = {skill: 5 for skill in extracted_skills}
-            request.session["temp_jd"]["jd_raw_text"] = jd_raw_text[:8000]
-            request.session["temp_jd"]["jd_raw_text"] = jd_raw_text[:500] + "..."   # preview for frontend
+    # Extract text and skills after file is closed
+    jd_raw_text = extract_text_from_file(str(jd_path))
+    ai_skills = llm_extract_skills(jd_raw_text)
+    if not ai_skills:
+        extracted_skills = extract_skills_from_jd(str(jd_path))
+        ai_skills = {skill: 5 for skill in extracted_skills}
 
     request.session["temp_jd"] = {
         "jd_title": jd_title.strip() if jd_title else None,
         "jd_path": str(jd_path),
+        "jd_raw_text": jd_raw_text[:8000],
         "gender_requirement": None,
         "education_requirement": education_requirement or None,
         "experience_requirement": years,
@@ -921,6 +921,7 @@ def upload_jd(
     return {
         "ok": True,
         "jd_title": request.session["temp_jd"]["jd_title"],
+        "jd_text": jd_raw_text[:500],
         "uploaded_jd": safe_filename,
         "ai_skills": ai_skills,
         "cutoff_score": cutoff,

@@ -36,7 +36,7 @@ export default function HRSkillWeightsPage() {
 
   function initializeSkills(jd) {
     try {
-      const weights = JSON.parse(jd?.weights_json || "{}");
+      const weights = jd?.weights_json || {};
       const skillList = Object.entries(weights).map(([skill, weight]) => ({
         skill,
         weight: Number(weight) || 1,
