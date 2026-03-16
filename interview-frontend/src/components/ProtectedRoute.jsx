@@ -1,21 +1,25 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/useAuth";
 
-function LoadingState() {
-  return <p className="center muted">Checking session...</p>;
-}
-
 export default function ProtectedRoute({ role }) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
-  if (loading) return <LoadingState />;
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
+
+  // Not logged in — save where they were trying to go, then send to login
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
+
+  // Logged in but wrong role — send to their own dashboard
   if (role && user.role !== role) {
-    const redirectPath = user.role === "hr" ? "/hr" : "/candidate";
-    return <Navigate to={redirectPath} replace />;
+    return <Navigate to={user.role === "hr" ? "/hr" : "/candidate"} replace />;
   }
+
   return <Outlet />;
 }

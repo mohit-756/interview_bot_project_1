@@ -68,6 +68,17 @@ def ensure_schema() -> None:
             if "questions_json" not in candidate_cols:
                 conn.execute(text("ALTER TABLE candidates ADD COLUMN questions_json TEXT"))
 
+            # One interview attempt per (candidate, JD) — safe on existing DBs
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_result_candidate_job
+                    ON results(candidate_id, job_id)
+                    WHERE candidate_id IS NOT NULL AND job_id IS NOT NULL
+                    """
+                )
+            )
+
             # application_id on results
             rows = conn.execute(text("PRAGMA table_info(results)")).fetchall()
             res_cols = {row[1] for row in rows}

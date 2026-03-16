@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -71,6 +71,12 @@ class JobDescriptionConfig(Base):
 
 class Result(Base):
     __tablename__ = "results"
+
+    # Enforce one interview attempt per (candidate, JD) pair.
+    # A candidate may interview for multiple JDs but only once per JD.
+    __table_args__ = (
+        UniqueConstraint("candidate_id", "job_id", name="uq_result_candidate_job"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     candidate_id = Column(Integer, ForeignKey("candidates.id"))

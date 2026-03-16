@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import DashboardLayout from "./layout/DashboardLayout";
 import { useAuth } from "./context/useAuth";
@@ -39,15 +39,19 @@ function HomeRedirect() {
 
 function PublicOnlyRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return null;
-  if (user) return <Navigate to={user.role === "hr" ? "/hr" : "/candidate"} replace />;
+  if (user) {
+    // If redirected here from a protected page, go back there after login
+    const next = location.state?.from || (user.role === "hr" ? "/hr" : "/candidate");
+    return <Navigate to={next} replace />;
+  }
   return children;
 }
 
 export default function App() {
   return (
     <Routes>
-      {/* Public */}
       <Route path="login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
       <Route path="signup" element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>} />
 
