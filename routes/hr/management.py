@@ -34,6 +34,9 @@ from services.resume_advice import build_resume_advice
 
 router = APIRouter()
 jd_router = APIRouter(prefix="/hr/jds", tags=["hr-jds"])
+# Keep FastAPI path params in plain `{jd_id}` form here. Using Starlette-style
+# converter syntax (`{jd_id:int}`) can produce route resolution mismatches across
+# versions and was breaking the frontend's /api/hr/jds/:id and toggle-active calls.
 
 PAGE_SIZE = 10
 STATUS_META = {
@@ -360,7 +363,7 @@ def hr_list_jds(
 # 1) What this does: fetches details for one HR-owned JD config.
 # 2) Why needed: allows per-JD view/edit flows.
 # 3) How it works: verifies HR ownership via legacy jobs table.
-@jd_router.get("/{jd_id:int}")
+@jd_router.get("/{jd_id}")
 def hr_get_jd(
     jd_id: int,
     current_user: SessionUser = Depends(require_role("hr")),
@@ -373,7 +376,7 @@ def hr_get_jd(
 # 1) What this does: updates one HR-owned JD config and syncs scoring table.
 # 2) Why needed: HR can tune qualify score, weights, and question count without re-uploading.
 # 3) How it works: applies partial fields to job_descriptions and mirrors into jobs.
-@jd_router.put("/{jd_id:int}")
+@jd_router.put("/{jd_id}")
 def hr_update_jd(
     jd_id: int,
     payload: HrJDUpdateBody,
@@ -413,7 +416,7 @@ def hr_update_jd(
 
 # NOTE: Backward-safe minimal toggle for demo readiness.
 # HR keeps seeing all JDs, while candidate-facing lists only show active ones.
-@jd_router.post("/{jd_id:int}/toggle-active")
+@jd_router.post("/{jd_id}/toggle-active")
 def hr_toggle_jd_active(
     jd_id: int,
     current_user: SessionUser = Depends(require_role("hr")),
@@ -436,7 +439,7 @@ def hr_toggle_jd_active(
     return {"ok": True, "jd": _serialize_jd_config(jd)}
 
 
-@jd_router.delete("/{jd_id:int}")
+@jd_router.delete("/{jd_id}")
 def hr_delete_jd(
     jd_id: int,
     current_user: SessionUser = Depends(require_role("hr")),
