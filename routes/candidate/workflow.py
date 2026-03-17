@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ai_engine.phase1.scoring import compute_resume_skill_match
 from ai_engine.phase1.matching import extract_text_from_file
+from ai_engine.phase2.question_builder import build_question_bundle
 from database import get_db
 from models import JobDescription, JobDescriptionConfig, Result
 from routes.common import (

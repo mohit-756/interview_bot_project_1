@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 from services.question_builder import build_question_bundle
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+
+from ai_engine.phase1.matching import extract_text_from_file
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -336,9 +338,13 @@ def _ensure_question_bank(
     if not candidate.resume_path:
         raise HTTPException(status_code=400, detail="Resume is required before interview questions can be prepared.")
 
+    resume_text = extract_text_from_file(candidate.resume_path or "")
+    if not resume_text.strip():
+        raise HTTPException(status_code=400, detail="Candidate resume text could not be extracted for interview question generation.")
+
     logger.info("interview_question_bank_generate_start result_id=%s candidate_id=%s", result.id, candidate.id)
     bundle = build_question_bundle(
-    
+        resume_text=resume_text,
         jd_title=(job.jd_title if job else None),
         jd_skill_scores=(job.skill_scores if job else {}) or {},
         question_count=int(question_count or 8),
@@ -390,15 +396,15 @@ def interview_access(
     result = _resolve_candidate_result(db, candidate.id, result_id)
     access = interview_access_state(result)
     latest_session = _latest_interview_session(db, result)
-    questions = normalize_result_questions(result.interview_questions)
-    print("RESULT ID:", result.id)
-    print("RAW interview_questions:", result.interview_questions)
-    print("NORMALIZED questions:", questions)
-    if not questions:
-        raise HTTPException(
-            status_code=400,
-            detail="Interview questions are not ready yet for this result.",
-        )
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    question_count = int(job.question_count if job and job.question_count is not None else 8)
+    questions = _ensure_question_bank(
+        db,
+        result=result,
+        candidate=candidate,
+        job=job,
+        question_count=question_count,
+    )
 
     return {
         "ok": True,
@@ -435,6 +441,14 @@ def interview_start(
         else int(job.question_count if job and job.question_count is not None else 8)
     )
     configured_max_questions = max(3, min(20, configured_max_questions))
+
+    _ensure_question_bank(
+        db,
+        result=result,
+        candidate=candidate,
+        job=job,
+        question_count=configured_max_questions,
+    )
 
     session = (
         db.query(InterviewSession)
