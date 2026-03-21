@@ -178,7 +178,19 @@ export default function HRCandidateDetailPage() {
 
           <div className="card stack">
             <div className="title-row"><div><p className="eyebrow">Interview summary</p><h3>Latest interview snapshot</h3></div>{latestApplication?.latest_session?.id ? <Link to={`/hr/interviews/${latestApplication.latest_session.id}`} className="button-link subtle-button">Open Interview Review</Link> : null}</div>
-            {latestApplication?.latest_session ? <><div className="grid md:grid-cols-3 gap-4"><div className="question-preview-card"><strong>Interview score:</strong> {Math.round(Number(interviewSummary?.overall_interview_score || 0))}%</div><div className="question-preview-card"><strong>Communication:</strong> {Math.round(Number(interviewSummary?.communication_score || 0))}%</div><div className="question-preview-card"><strong>Recommendation:</strong> {interviewSummary?.hiring_recommendation || "N/A"}</div></div><p><strong>Strengths:</strong> {safeList(interviewSummary?.strengths_summary).join(" ") || "No interview data yet."}</p><p><strong>Weaknesses:</strong> {safeList(interviewSummary?.weaknesses_summary).join(" ") || "No interview data yet."}</p></> : <p className="muted">No interview data yet.</p>}
+            {latestApplication?.latest_session ? <>
+              <div className="grid md:grid-cols-4 gap-4">
+                <div className="question-preview-card"><strong>Technical score:</strong> {Math.round(Number(interviewSummary?.overall_interview_score || 0))}%</div>
+                <div className="question-preview-card"><strong>Communication:</strong> {Math.round(Number(interviewSummary?.communication_score || 0))}%</div>
+                <div className="question-preview-card"><strong>Recommendation:</strong> {interviewSummary?.hiring_recommendation || "N/A"}</div>
+                <div className="question-preview-card"><strong>Session status:</strong> {latestApplication?.latest_session?.status || "N/A"}</div>
+              </div>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="question-preview-card"><p className="eyebrow">Strengths</p><p className="muted">{safeList(interviewSummary?.strengths_summary).join(" ") || "No interview data yet."}</p></div>
+                <div className="question-preview-card"><p className="eyebrow">Weaknesses</p><p className="muted">{safeList(interviewSummary?.weaknesses_summary).join(" ") || "No interview data yet."}</p></div>
+                <div className="question-preview-card"><p className="eyebrow">Improvement suggestions</p><p className="muted">{safeList(data?.resume_advice?.next_steps).join(" ") || "No improvement suggestions available yet."}</p></div>
+              </div>
+            </> : <p className="muted">No interview data yet.</p>}
           </div>
         </div>
 
@@ -202,7 +214,7 @@ export default function HRCandidateDetailPage() {
 
           <div className="card stack">
             <div className="title-row"><div><p className="eyebrow">Stage history</p><h3>Timeline</h3></div></div>
-            {safeList(stageHistory).length ? safeList(stageHistory).map((item) => <div key={item.id} className="timeline-item"><div className="timeline-dot" /><div className="timeline-content"><div className="flex items-center justify-between gap-2 flex-wrap"><StatusBadge status={item.stage} /><span className="muted text-sm">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</span></div><p className="muted mt-2">{item.note || "No note"}</p></div></div>) : <p className="muted">No stage history available yet.</p>}
+            {safeList(stageHistory).length ? safeList(stageHistory).map((item, index) => <div key={item.id || `${item.stage}-${index}`} className="timeline-item"><div className="timeline-dot" /><div className="timeline-content"><div className="flex items-center justify-between gap-2 flex-wrap"><StatusBadge status={item.stage} /><span className="muted text-sm">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</span></div><p className="muted mt-2">{item.note || "Stage updated"}</p></div></div>) : <p className="muted">No stage history available yet.</p>}
           </div>
 
           <div className="card stack">

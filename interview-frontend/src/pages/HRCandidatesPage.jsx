@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Trash2, ArrowUpDown, GitCompareArrows } from "lucide-react";
+import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Trash2, ArrowUpDown, GitCompareArrows, CheckSquare } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
 import ScoreBadge from "../components/ScoreBadge";
 import { hrApi } from "../services/api";
@@ -34,6 +34,9 @@ export default function HRCandidatesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedForCompare, setSelectedForCompare] = useState([]);
+  const [selectedForBulk, setSelectedForBulk] = useState([]);
+  const [bulkStage, setBulkStage] = useState("");
+  const [bulkLoading, setBulkLoading] = useState(false);
   const itemsPerPage = 10;
 
   const loadAllCandidates = useCallback(async () => {
@@ -78,8 +81,9 @@ export default function HRCandidatesPage() {
         const name = String(candidate?.name || "").toLowerCase();
         const email = String(candidate?.email || "").toLowerCase();
         const candidateUid = String(candidate?.candidate_uid || "").toLowerCase();
+        const role = String(candidate?.role || "").toLowerCase();
         const query = searchTerm.toLowerCase();
-        const matchesSearch = !query || name.includes(query) || email.includes(query) || candidateUid.includes(query);
+        const matchesSearch = !query || name.includes(query) || email.includes(query) || candidateUid.includes(query) || role.includes(query);
         const matchesStatus = statusFilter === "all" || candidate?.interviewStatus?.key === statusFilter;
         const assignedJdId = String(candidate?.assignedJd?.id || candidate?.job?.id || "");
         const matchesJd = jdFilter === "all" || assignedJdId === String(jdFilter);
@@ -105,6 +109,7 @@ export default function HRCandidatesPage() {
   useEffect(() => { setPage(1); }, [searchTerm, statusFilter, jdFilter, minScore, maxScore, sortConfig]);
   useEffect(() => {
     setSelectedForCompare((prev) => (Array.isArray(prev) ? prev : []).filter((id) => filteredCandidates.some((candidate) => normalizeId(candidate?.result_id) === id)));
+    setSelectedForBulk((prev) => (Array.isArray(prev) ? prev : []).filter((id) => filteredCandidates.some((candidate) => normalizeId(candidate?.result_id) === id)));
   }, [filteredCandidates]);
 
   const requestSort = (key) => {
@@ -134,6 +139,23 @@ export default function HRCandidatesPage() {
     }
   }
 
+  async function handleBulkStageUpdate(stage) {
+    const safeStage = String(stage || bulkStage || "").trim();
+    if (!safeStage || !selectedForBulk.length) return;
+    setBulkLoading(true);
+    setError("");
+    try {
+      await Promise.all(selectedForBulk.map((resultId) => hrApi.updateCandidateStage(resultId, { stage: safeStage, note: `Bulk updated from candidate table to ${safeStage}.` })));
+      setSelectedForBulk([]);
+      setBulkStage("");
+      await loadAllCandidates();
+    } catch (updateError) {
+      setError(updateError.message || "Failed to update selected candidates.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
   async function handleAssignJd(candidateUid, jdId) {
     if (!candidateUid || !jdId) return;
     try {
@@ -145,13 +167,12 @@ export default function HRCandidatesPage() {
   }
 
   function handleExportCsv() {
-    const header = ["Candidate ID", "Name", "Email", "Assigned JD", "Rank", "Match %", "Final Score", "Recommendation", "Stage"];
+    const header = ["Candidate ID", "Name", "Email", "Assigned JD", "Match %", "Final Score", "Recommendation", "Stage"];
     const rows = filteredCandidates.map((candidate) => [
       candidate?.candidate_uid || "",
       candidate?.name || "",
       candidate?.email || "",
       candidate?.assignedJd?.title || candidate?.role || "–",
-      candidate?.rank || "–",
       candidate?.matchPercent || 0,
       candidate?.finalAIScore || 0,
       candidate?.recommendationTag || "–",
@@ -179,10 +200,33 @@ export default function HRCandidatesPage() {
     });
   }
 
+  function toggleBulkSelection(candidate) {
+    const resultId = normalizeId(candidate?.result_id);
+    if (!resultId) return;
+    setSelectedForBulk((prev) => prev.includes(resultId) ? prev.filter((id) => id !== resultId) : [...prev, resultId]);
+  }
+
+  function toggleSelectAllCurrentPage() {
+    const pageIds = paginatedCandidates.map((candidate) => normalizeId(candidate?.result_id)).filter(Boolean);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedForBulk.includes(id));
+    setSelectedForBulk((prev) => {
+      const prevSet = new Set(prev);
+      if (allSelected) {
+        pageIds.forEach((id) => prevSet.delete(id));
+      } else {
+        pageIds.forEach((id) => prevSet.add(id));
+      }
+      return Array.from(prevSet);
+    });
+  }
+
   function handleCompareNavigate() {
     if (selectedForCompare.length < 2) return;
     navigate(`/hr/compare?ids=${selectedForCompare.join(",")}`);
   }
+
+  const pageIds = paginatedCandidates.map((candidate) => normalizeId(candidate?.result_id)).filter(Boolean);
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedForBulk.includes(id));
 
   if (loading && !allCandidates.length) return <p className="center muted py-12">Loading candidates...</p>;
 
@@ -191,7 +235,7 @@ export default function HRCandidatesPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display">Candidate Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Review ATS scores, assigned JDs, pipeline stages, recommendations, and compare top candidates.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Review ATS scores, assigned JDs, pipeline stages, recommendations, compare candidates, and apply bulk actions safely.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button type="button" onClick={handleExportCsv} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-5 py-2.5 rounded-xl font-bold flex items-center space-x-2 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"><Download size={20} /><span>Export CSV</span></button>
@@ -204,7 +248,7 @@ export default function HRCandidatesPage() {
 
       <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-          <div className="relative lg:col-span-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Search by name, email, or ID..." className="w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium dark:text-white" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} /></div>
+          <div className="relative lg:col-span-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Search by name, email, ID, or JD..." className="w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium dark:text-white" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} /></div>
           <select className="px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium dark:text-white" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Stage: All</option><option value="applied">Applied</option><option value="screening">Screening</option><option value="shortlisted">Shortlisted</option><option value="interview_scheduled">Interview Scheduled</option><option value="interview_completed">Interview Completed</option><option value="selected">Selected</option><option value="rejected">Rejected</option></select>
           <select className="px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium dark:text-white" value={jdFilter} onChange={(event) => setJdFilter(event.target.value)}><option value="all">Assigned JD: All</option>{jdOptions.map((jd) => <option key={jd.id} value={jd.id}>{jd.title}</option>)}</select>
           <input type="number" value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="Min score" className="px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium dark:text-white" />
@@ -213,11 +257,31 @@ export default function HRCandidatesPage() {
         <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Showing {paginatedCandidates.length} of {filteredCandidates.length} candidates</p>
       </div>
 
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="inline-flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><CheckSquare size={16} />Bulk Actions</div>
+          <button type="button" onClick={() => handleBulkStageUpdate("shortlisted")} disabled={!selectedForBulk.length || bulkLoading} className="pipeline-action-button">Shortlist Selected</button>
+          <button type="button" onClick={() => handleBulkStageUpdate("rejected")} disabled={!selectedForBulk.length || bulkLoading} className="pipeline-action-button danger">Reject Selected</button>
+          <select value={bulkStage} onChange={(e) => setBulkStage(e.target.value)} className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white">
+            <option value="">Move selected to stage...</option>
+            <option value="screening">Screening</option>
+            <option value="shortlisted">Shortlisted</option>
+            <option value="interview_scheduled">Interview Scheduled</option>
+            <option value="interview_completed">Interview Completed</option>
+            <option value="selected">Selected</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button type="button" onClick={() => handleBulkStageUpdate()} disabled={!selectedForBulk.length || !bulkStage || bulkLoading} className="pipeline-action-button">Apply Stage</button>
+        </div>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{selectedForBulk.length} selected for bulk update</p>
+      </div>
+
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
+                <th className="px-6 py-5 text-[10px] text-slate-400 uppercase tracking-widest font-black"><input type="checkbox" checked={allPageSelected} onChange={toggleSelectAllCurrentPage} /></th>
                 <th className="px-6 py-5 text-[10px] text-slate-400 uppercase tracking-widest font-black">Compare</th>
                 <th className="px-6 py-5 text-[10px] text-slate-400 uppercase tracking-widest font-black">Candidate</th>
                 <th className="px-6 py-5 text-[10px] text-slate-400 uppercase tracking-widest font-black">Assigned JD</th>
@@ -229,14 +293,15 @@ export default function HRCandidatesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-              {!paginatedCandidates.length ? <tr><td colSpan={8} className="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No candidates available.</td></tr> : paginatedCandidates.map((candidate) => {
+              {!paginatedCandidates.length ? <tr><td colSpan={9} className="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No candidates available.</td></tr> : paginatedCandidates.map((candidate) => {
                 const resultId = normalizeId(candidate?.result_id);
-                const selectable = Boolean(resultId);
-                const checked = selectable && selectedForCompare.includes(resultId);
+                const compareSelectable = Boolean(resultId);
+                const compareChecked = compareSelectable && selectedForCompare.includes(resultId);
+                const bulkChecked = compareSelectable && selectedForBulk.includes(resultId);
                 const candidateName = candidate?.name || "Unnamed candidate";
                 const candidateUid = candidate?.candidate_uid || "No ID";
                 const assignedJdTitle = candidate?.assignedJd?.title || candidate?.role || "Not assigned";
-                return <tr key={candidateUid} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-all group"><td className="px-6 py-4"><input type="checkbox" checked={checked} onChange={() => toggleCompareSelection(candidate)} disabled={!selectable || (!checked && selectedForCompare.length >= 3)} /></td><td className="px-6 py-4"><div className="min-w-0"><p className="text-sm font-bold text-slate-900 dark:text-white truncate">{candidateName}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{candidateUid}</p><p className="text-xs text-slate-500 dark:text-slate-400 truncate">{candidate?.email || "No email"}</p></div></td><td className="px-6 py-4"><div className="space-y-2"><p className="text-xs font-bold text-slate-700 dark:text-slate-200">{assignedJdTitle}</p><select value="" onChange={(e) => e.target.value && handleAssignJd(candidate?.candidate_uid, e.target.value)} className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"><option value="">Assign to JD</option>{jdOptions.map((jd) => <option key={jd.id} value={jd.id}>{jd.title}</option>)}</select></div></td><td className="px-6 py-4"><div className="space-y-1"><ScoreBadge score={candidate?.matchPercent || 0} /><p className="text-[11px] text-slate-500 dark:text-slate-400">Match: {candidate?.matchPercent || 0}%</p></div></td><td className="px-6 py-4 bg-blue-50/20 dark:bg-blue-900/5"><ScoreBadge score={candidate?.finalAIScore || 0} className="scale-110 shadow-sm" /></td><td className="px-6 py-4"><StatusBadge status={candidate?.finalDecision} /></td><td className="px-6 py-4"><StatusBadge status={candidate?.interviewStatus} /></td><td className="px-6 py-4 text-right"><div className="flex items-center justify-end space-x-2"><Link to={`/hr/candidates/${candidateUid}`} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all"><Eye size={18} /></Link><select value="" onChange={(e) => e.target.value && handleStageUpdate(candidate?.result_id, e.target.value)} className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"><option value="">Move</option><option value="screening">Screening</option><option value="shortlisted">Shortlisted</option><option value="interview_scheduled">Interview Scheduled</option><option value="interview_completed">Interview Completed</option><option value="selected">Selected</option><option value="rejected">Rejected</option></select><button type="button" onClick={() => handleDeleteCandidate(candidateUid)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"><Trash2 size={18} /></button></div></td></tr>;
+                return <tr key={candidateUid} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-all group"><td className="px-6 py-4"><input type="checkbox" checked={bulkChecked} onChange={() => toggleBulkSelection(candidate)} disabled={!compareSelectable} /></td><td className="px-6 py-4"><input type="checkbox" checked={compareChecked} onChange={() => toggleCompareSelection(candidate)} disabled={!compareSelectable || (!compareChecked && selectedForCompare.length >= 3)} /></td><td className="px-6 py-4"><div className="min-w-0"><p className="text-sm font-bold text-slate-900 dark:text-white truncate">{candidateName}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{candidateUid}</p><p className="text-xs text-slate-500 dark:text-slate-400 truncate">{candidate?.email || "No email"}</p></div></td><td className="px-6 py-4"><div className="space-y-2"><p className="text-xs font-bold text-slate-700 dark:text-slate-200">{assignedJdTitle}</p><select value="" onChange={(e) => e.target.value && handleAssignJd(candidate?.candidate_uid, e.target.value)} className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"><option value="">Assign to JD</option>{jdOptions.map((jd) => <option key={jd.id} value={jd.id}>{jd.title}</option>)}</select></div></td><td className="px-6 py-4"><div className="space-y-1"><ScoreBadge score={candidate?.matchPercent || 0} /><p className="text-[11px] text-slate-500 dark:text-slate-400">Match: {candidate?.matchPercent || 0}%</p></div></td><td className="px-6 py-4 bg-blue-50/20 dark:bg-blue-900/5"><ScoreBadge score={candidate?.finalAIScore || 0} className="scale-110 shadow-sm" /></td><td className="px-6 py-4"><StatusBadge status={candidate?.finalDecision} /></td><td className="px-6 py-4"><StatusBadge status={candidate?.interviewStatus} /></td><td className="px-6 py-4 text-right"><div className="flex items-center justify-end space-x-2"><Link to={`/hr/candidates/${candidateUid}`} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all"><Eye size={18} /></Link><select value="" onChange={(e) => e.target.value && handleStageUpdate(candidate?.result_id, e.target.value)} className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"><option value="">Move</option><option value="screening">Screening</option><option value="shortlisted">Shortlisted</option><option value="interview_scheduled">Interview Scheduled</option><option value="interview_completed">Interview Completed</option><option value="selected">Selected</option><option value="rejected">Rejected</option></select><button type="button" onClick={() => handleDeleteCandidate(candidateUid)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"><Trash2 size={18} /></button></div></td></tr>;
               })}
             </tbody>
           </table>

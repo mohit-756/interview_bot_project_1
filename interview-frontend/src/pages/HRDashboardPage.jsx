@@ -1,10 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, UserCheck, UserX, CheckCircle2, Plus, Trophy, BarChart3, Sparkles } from "lucide-react";
+import { Users, UserCheck, UserX, CheckCircle2, Plus, BarChart3, Sparkles, TrendingUp } from "lucide-react";
+import { ResponsiveContainer, FunnelChart, Funnel, Tooltip, LabelList, BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import MetricCard from "../components/MetricCard";
 import CandidateTable from "../components/CandidateTable";
 import StatusBadge from "../components/StatusBadge";
 import { hrApi } from "../services/api";
+
+const CHART_COLORS = ["#2563eb", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#06b6d4"];
+
+function ChartCard({ title, subtitle, children }) {
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{title}</h2>
+        {subtitle ? <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{subtitle}</p> : null}
+      </div>
+      <div className="p-6">{children}</div>
+    </div>
+  );
+}
 
 export default function HRDashboardPage() {
   const navigate = useNavigate();
@@ -17,6 +32,9 @@ export default function HRDashboardPage() {
 
   const overview = dashboard?.analytics?.overview || {};
   const pipeline = dashboard?.analytics?.pipeline || [];
+  const funnel = dashboard?.analytics?.funnel || [];
+  const scorePerJd = dashboard?.analytics?.avg_score_per_jd || [];
+  const topSkills = dashboard?.analytics?.top_matched_skills || [];
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -65,6 +83,10 @@ export default function HRDashboardPage() {
     navigate(`/hr/candidates/${candidate.uid || candidate.candidate_uid}`);
   }
 
+  const chartReadyFunnel = useMemo(() => funnel.map((item) => ({ name: item.label, value: item.count, fill: CHART_COLORS[0] })), [funnel]);
+  const chartReadyJdScores = useMemo(() => scorePerJd.map((item) => ({ name: item.job_title, score: Math.round(Number(item.avg_score || 0)), count: item.candidate_count || 0 })), [scorePerJd]);
+  const chartReadySkills = useMemo(() => topSkills.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] })), [topSkills]);
+
   if (loading && !dashboard) return <p className="center muted">Loading HR dashboard...</p>;
 
   return (
@@ -72,7 +94,7 @@ export default function HRDashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display">HR Dashboard</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Monitor ATS pipeline metrics, rankings, recommendations, and the latest candidates.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Production-style ATS analytics, rankings, funnel health, and recent candidate activity.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button type="button" onClick={() => navigate("/hr/compare")} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">
@@ -92,23 +114,33 @@ export default function HRDashboardPage() {
         <MetricCard title="Shortlisted" value={overview.shortlisted_count || 0} icon={UserCheck} color="green" />
         <MetricCard title="Rejected" value={overview.rejected_count || 0} icon={UserX} color="red" />
         <MetricCard title="Interview Completed" value={overview.completed_interviews || 0} icon={CheckCircle2} color="yellow" />
-        <MetricCard title="Avg Score" value={`${Math.round(Number(overview.avg_interview_score || 0))}%`} icon={BarChart3} color="purple" />
-        <MetricCard title="Selection Rate" value={`${Math.round(Number(overview.selection_rate || 0))}%`} icon={Sparkles} color="blue" />
+        <MetricCard title="Selection Rate" value={`${Math.round(Number(overview.selection_rate || 0))}%`} icon={Sparkles} color="purple" />
+        <MetricCard title="Interview Success" value={`${Math.round(Number(overview.interview_success_rate || 0))}%`} icon={TrendingUp} color="blue" />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        <div className="xl:col-span-2 space-y-8">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4 flex-wrap">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Top Ranked Candidates</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Final weighted ATS score sorted across current applications.</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <ChartCard title="Hiring Funnel" subtitle="Applied → shortlisted → interview completed → selected">
+              {!chartReadyFunnel.length ? <p className="muted">No funnel data yet.</p> : <div className="ats-chart-box"><ResponsiveContainer width="100%" height="100%"><FunnelChart><Tooltip /><Funnel dataKey="value" data={chartReadyFunnel} isAnimationActive><LabelList position="right" fill="#64748b" stroke="none" dataKey="name" /></Funnel></FunnelChart></ResponsiveContainer></div>}
+            </ChartCard>
+
+            <ChartCard title="Selection Quality" subtitle="Core ATS conversion indicators">
+              <div className="metric-grid compact">
+                <MetricCard title="Avg Score" value={`${Math.round(Number(overview.avg_interview_score || 0))}%`} icon={BarChart3} color="purple" />
+                <MetricCard title="Selection Rate" value={`${Math.round(Number(overview.selection_rate || 0))}%`} icon={Sparkles} color="blue" />
+                <MetricCard title="Interview Success" value={`${Math.round(Number(overview.interview_success_rate || 0))}%`} icon={TrendingUp} color="green" />
+                <MetricCard title="Interview Completion" value={`${Math.round(Number(overview.interview_completion_rate || 0))}%`} icon={CheckCircle2} color="yellow" />
               </div>
-              <button type="button" onClick={() => navigate("/hr/compare")} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">
-                Open Compare View
-              </button>
-            </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            </ChartCard>
+          </div>
+
+          <ChartCard title="Average Score per JD" subtitle="Compare ATS score trends across job descriptions">
+            {!chartReadyJdScores.length ? <p className="muted">No JD score data yet.</p> : <div className="ats-chart-box tall"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartReadyJdScores}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-10} textAnchor="end" height={60} /><YAxis /><Tooltip /><Bar dataKey="score" radius={[10, 10, 0, 0]} fill="#2563eb" /></BarChart></ResponsiveContainer></div>}
+          </ChartCard>
+
+          <ChartCard title="Top Ranked Candidates" subtitle="Final weighted ATS score sorted across current applications.">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {!ranked.length ? <p className="text-sm text-slate-500 dark:text-slate-400">No ranked candidates yet.</p> : ranked.map((candidate) => (
                 <div key={candidate.result_id} className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30">
                   <div className="flex items-center justify-between gap-3">
@@ -125,26 +157,15 @@ export default function HRDashboardPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </ChartCard>
 
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Recent Candidates</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">ATS list view preview with ranking and recommendations.</p>
-              </div>
-            </div>
-            {tableLoading ? (
-              <p className="center muted py-12">Loading candidates...</p>
-            ) : (
-              <CandidateTable candidates={candidatesData?.candidates || []} onDeleteCandidate={handleDeleteCandidate} onScheduleCandidate={handleScheduleCandidate} />
-            )}
-          </div>
+          <ChartCard title="Recent Candidates" subtitle="ATS list view preview with ranking and recommendations.">
+            {tableLoading ? <p className="center muted py-12">Loading candidates...</p> : <CandidateTable candidates={candidatesData?.candidates || []} onDeleteCandidate={handleDeleteCandidate} onScheduleCandidate={handleScheduleCandidate} />}
+          </ChartCard>
         </div>
 
         <div className="space-y-8">
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-6">ATS Pipeline</h4>
+          <ChartCard title="Pipeline Breakdown" subtitle="Stage-wise application distribution">
             <div className="space-y-4">
               {pipeline.map((item) => (
                 <div key={item.key} className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
@@ -153,32 +174,25 @@ export default function HRDashboardPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </ChartCard>
 
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-6">Recommendation Highlights</h4>
+          <ChartCard title="Top Skills Distribution" subtitle="Most frequently matched skills across current candidates">
+            {!chartReadySkills.length ? <p className="muted">No skill trends yet.</p> : <div className="ats-chart-box"><ResponsiveContainer width="100%" height="100%"><PieChart><Tooltip /><Pie data={chartReadySkills} dataKey="count" nameKey="skill" outerRadius={95} innerRadius={50}>{chartReadySkills.map((entry) => <Cell key={entry.skill} fill={entry.fill} />)}</Pie></PieChart></ResponsiveContainer></div>}
+            {chartReadySkills.length ? <div className="space-y-3 mt-4">{chartReadySkills.map((item) => <div key={item.skill} className="flex items-center justify-between rounded-xl bg-slate-50 dark:bg-slate-800/40 px-4 py-3"><span className="text-sm font-medium text-slate-700 dark:text-slate-300">{item.skill}</span><span className="text-sm font-bold text-slate-900 dark:text-white">{item.count}</span></div>)}</div> : null}
+          </ChartCard>
+
+          <ChartCard title="Recommendation Highlights" subtitle="Top AI-recommended applications">
             <div className="space-y-4">
               {(dashboard?.analytics?.top_ranked_candidates || []).length ? dashboard.analytics.top_ranked_candidates.map((item) => (
                 <div key={item.result_id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
                   <p className="font-bold text-slate-900 dark:text-white">{item.candidate_name}</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">{item.recommendation || "N/A"}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{item.job_title || "JD"}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{item.recommendation || "N/A"}</p>
                   <p className="text-xs font-black text-blue-600 mt-2">{Math.round(Number(item.final_score || 0))}%</p>
                 </div>
               )) : <p className="text-sm text-slate-500 dark:text-slate-400">No recommendation highlights yet.</p>}
             </div>
-          </div>
-
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-6">Top Skills Found</h4>
-            <div className="space-y-3">
-              {(dashboard?.analytics?.top_matched_skills || []).length ? dashboard.analytics.top_matched_skills.map((item) => (
-                <div key={item.skill} className="flex items-center justify-between rounded-xl bg-slate-50 dark:bg-slate-800/40 px-4 py-3">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{item.skill}</span>
-                  <span className="text-sm font-bold text-slate-900 dark:text-white">{item.count}</span>
-                </div>
-              )) : <p className="text-sm text-slate-500 dark:text-slate-400">No skill trends yet.</p>}
-            </div>
-          </div>
+          </ChartCard>
         </div>
       </div>
     </div>
