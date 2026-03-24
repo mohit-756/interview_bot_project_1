@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ai_engine.phase2.question_builder import extract_projects_from_resume
+from services.resume_parser import extract_projects_from_resume
 
 
 def _skill_order(jd_skill_scores: dict[str, int] | None) -> list[tuple[str, int]]:

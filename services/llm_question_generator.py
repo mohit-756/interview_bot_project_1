@@ -384,6 +384,9 @@ def build_structured_question_input(
 def _llm_user_prompt(structured_input: StructuredQuestionInput, question_count: int, retry_note: str | None = None) -> str:
     instructions = [
         f"Generate {question_count} interview questions for this candidate.",
+        f"You MUST return EXACTLY {question_count} questions.",
+        "Do not return fewer questions.",
+        "If unsure, still complete the full count.",
         "Use the JSON context exactly as provided.",
         "Treat resume_projects, resume_recent_roles, resume_measurable_impact, and resume_leadership_signals as the strongest evidence in that order.",
         "Mirror this target ordering across the set: intro/background alignment -> project/platform deep dive -> implementation trade-off -> architecture/design -> debugging/failure -> scaling/performance -> governance/security if relevant -> leadership/stakeholder if relevant -> measurable impact reflection.",
@@ -592,7 +595,10 @@ def _opening_pattern_violations(questions: list[dict[str, object]]) -> bool:
 
 def _validate_question_set(questions: list[dict[str, object]], structured_input: StructuredQuestionInput, question_count: int) -> list[str]:
     issues: list[str] = []
-    if len(questions) < max(2, int(question_count)):
+    requested_count = max(2, int(question_count))
+    # Accept a small shortfall while keeping a practical floor for real interview sets.
+    min_acceptable_count = max(6, requested_count - 2)
+    if len(questions) < min_acceptable_count:
         issues.append(f"insufficient_questions:{len(questions)}")
         return issues
 
@@ -887,6 +893,48 @@ def generate_question_bundle_with_fallback(
     project_ratio: float | None = None,
     jd_text: str | None = None,
 ) -> dict[str, object]:
+    def _pick_fallback_top_up(
+        llm_questions: list[dict[str, object]],
+        fallback_questions: list[dict[str, object]],
+        needed: int,
+        distribution: dict[str, int] | None,
+    ) -> list[dict[str, object]]:
+        if needed <= 0:
+            return []
+
+        seen = {_similarity_key(q.get("text")) for q in llm_questions}
+        current_counts: dict[str, int] = {}
+        for q in llm_questions:
+            cat = str(q.get("category") or "deep_dive")
+            current_counts[cat] = current_counts.get(cat, 0) + 1
+
+        target_distribution = distribution or {}
+
+        candidates: list[tuple[int, float, dict[str, object]]] = []
+        for fq in fallback_questions:
+            text_key = _similarity_key(fq.get("text"))
+            if not text_key or text_key in seen:
+                continue
+            category = str(fq.get("category") or "deep_dive")
+            target = int(target_distribution.get(category, 0))
+            deficit = max(0, target - current_counts.get(category, 0))
+            relevance = float(((fq.get("metadata") or {}).get("relevance_score") or 0.0))
+            candidates.append((deficit, relevance, fq))
+
+        candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
+        picked: list[dict[str, object]] = []
+        for _, _, fq in candidates:
+            if len(picked) >= needed:
+                break
+            text_key = _similarity_key(fq.get("text"))
+            if text_key in seen:
+                continue
+            seen.add(text_key)
+            picked.append(fq)
+
+        return picked
+
     desired_count = max(2, min(20, int(question_count or 8)))
     fallback_bundle = build_question_plan(
         resume_text=resume_text,
@@ -902,7 +950,24 @@ def generate_question_bundle_with_fallback(
             jd_title=jd_title,
             jd_skill_scores=jd_skill_scores or {},
         )
-        questions = llm_bundle["questions"]
+        questions = list(llm_bundle["questions"])
+
+        llm_topped_up_with_fallback = False
+        if len(questions) < desired_count:
+            missing = desired_count - len(questions)
+            if 0 < missing <= 2:
+                fallback_questions = list((fallback_bundle.get("questions") or []) if isinstance(fallback_bundle, dict) else [])
+                distribution = (fallback_bundle.get("meta") or {}).get("distribution") if isinstance(fallback_bundle, dict) else None
+                top_up_questions = _pick_fallback_top_up(
+                    llm_questions=questions,
+                    fallback_questions=fallback_questions,
+                    needed=missing,
+                    distribution=distribution if isinstance(distribution, dict) else None,
+                )
+                if top_up_questions:
+                    questions.extend(top_up_questions)
+                    llm_topped_up_with_fallback = True
+
         project_like_count = sum(
             1
             for item in questions
@@ -930,6 +995,7 @@ def generate_question_bundle_with_fallback(
                 **(fallback_bundle.get("meta") or {}),
                 "generation_mode": "llm_primary",
                 "fallback_used": False,
+                "llm_topped_up_with_fallback": llm_topped_up_with_fallback,
                 "llm_model": llm_bundle.get("llm_model"),
                 "llm_system_prompt": llm_bundle.get("system_prompt"),
                 "llm_user_prompt": llm_bundle.get("user_prompt"),

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from ai_engine.phase2.question_builder import build_question_bundle
-
+from services.question_generation import build_question_bundle
 
 def build_practice_kit(
     *,

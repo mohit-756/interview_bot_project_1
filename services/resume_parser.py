@@ -39,12 +39,26 @@ def _detect_name(lines: list[str], email: str | None) -> str | None:
 
 
 def _parse_sections(lines: list[str]) -> dict[str, list[str]]:
+    # Improved: recognize more section headers and variants
+    section_aliases = {
+        "summary": ["summary", "professional summary", "profile"],
+        "experience": ["work experience", "experience", "professional experience", "internship experience", "employment"],
+        "projects": ["technical projects", "projects", "project", "academic projects", "personal projects"],
+        "education": ["education", "academic background"],
+        "skills": ["skills", "technical skills", "core skills"],
+        "certifications": ["certifications", "certification", "licenses", "courses"],
+    }
+    header_map = {}
+    for canonical, aliases in section_aliases.items():
+        for alias in aliases:
+            header_map[alias] = canonical
     sections: dict[str, list[str]] = {key: [] for key in SECTION_HEADERS}
     current = "summary"
     for line in lines:
         lowered = line.lower().strip(":")
-        if lowered in SECTION_HEADERS:
-            current = lowered
+        canonical = header_map.get(lowered, None)
+        if canonical:
+            current = canonical
             continue
         sections.setdefault(current, []).append(line)
     return sections
@@ -70,6 +84,65 @@ def _bullets(lines: list[str], max_items: int = 6) -> list[str]:
     return items
 
 
+def extract_projects_from_resume(
+    resume_text: str,
+    known_skills: dict[str, object] | None = None,
+) -> list[str]:
+    """Best-effort project extraction shared by resume advice and legacy callers."""
+    _ = known_skills
+
+    if not resume_text:
+        return []
+
+    lines = [line.strip() for line in resume_text.splitlines()]
+    projects: list[str] = []
+    in_project_section = False
+    project_title = None
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+        lower = line.lower().rstrip(":")
+        # Section start
+        if any(lower.startswith(h) for h in ["technical projects", "projects", "project", "academic projects", "personal projects"]):
+            in_project_section = True
+            project_title = None
+            continue
+        # Section end
+        if in_project_section and any(lower.startswith(h) for h in ["education", "skills", "certification", "experience", "achievements", "summary"]):
+            in_project_section = False
+            project_title = None
+            continue
+        if in_project_section:
+            # Project title: line ending with ':' or bolded
+            if re.match(r"^[A-Za-z0-9\- &()]+:.*$", line) or (len(line) < 80 and not line.startswith("•") and not line.startswith("-") and not line.startswith("*")):
+                project_title = line.rstrip(":")
+                if project_title and project_title not in projects:
+                    projects.append(project_title)
+                continue
+            # Bullet or description
+            if line.startswith("•") or line.startswith("-") or line.startswith("*") or (project_title and len(line) > 10):
+                if project_title:
+                    projects.append(f"{project_title}: {line}")
+                else:
+                    projects.append(line)
+    # Fallback: scan for project-like lines
+    if not projects:
+        for line in lines:
+            lower = line.lower()
+            if any(keyword in lower for keyword in ("system", "portal", "app", "application", "dashboard", "bot", "platform", "website", "project", "tool")):
+                if len(line) > 3:
+                    projects.append(line)
+    seen = set()
+    unique_projects: list[str] = []
+    for project in projects:
+        key = project.lower()
+        if key not in seen:
+            seen.add(key)
+            unique_projects.append(project)
+    return unique_projects
+
+
 def parse_resume_text(text: str) -> dict[str, object]:
     raw_text = text or ""
     lines = _split_lines(raw_text)
@@ -78,6 +151,42 @@ def parse_resume_text(text: str) -> dict[str, object]:
     sections = _parse_sections(lines)
     summary_lines = sections.get("summary") or lines[:4]
 
+    # Improved experience extraction
+    experience_entries = []
+    in_exp_section = False
+    exp_title = None
+    for i, line in enumerate(lines):
+        l = line.strip()
+        lower = l.lower().rstrip(":")
+        if any(lower.startswith(h) for h in ["work experience", "experience", "professional experience", "internship experience", "employment"]):
+            in_exp_section = True
+            exp_title = None
+            continue
+        if in_exp_section and any(lower.startswith(h) for h in ["education", "skills", "certification", "projects", "achievements", "summary"]):
+            in_exp_section = False
+            exp_title = None
+            continue
+        if in_exp_section:
+            # Experience title: role/company | ...
+            if re.match(r"^[A-Za-z0-9\- &|()]+\|.*$", l) or (len(l) < 80 and not l.startswith("•") and not l.startswith("-") and not l.startswith("*")):
+                exp_title = l
+                if exp_title and exp_title not in experience_entries:
+                    experience_entries.append(exp_title)
+                continue
+            # Bullet or description
+            if l.startswith("•") or l.startswith("-") or l.startswith("*") or (exp_title and len(l) > 10):
+                if exp_title:
+                    experience_entries.append(f"{exp_title}: {l}")
+                else:
+                    experience_entries.append(l)
+
+    # Measurable impact extraction (from all lines)
+    measurable_impacts = []
+    impact_pattern = re.compile(r"(\d+%|\d+ percent|\d+x|reduced|improved|increased|decreased|boosted|cut|saved|grew|shrunk|doubled|halved|reduced by|increased by|improved by|decreased by|boosted by|cut by|saved by|grew by|shrunk by|doubled|halved)", re.I)
+    for line in lines:
+        if impact_pattern.search(line):
+            measurable_impacts.append(line.strip())
+
     return {
         "full_name": _detect_name(lines, email_match.group(0) if email_match else None),
         "email": email_match.group(0) if email_match else None,
@@ -85,8 +194,9 @@ def parse_resume_text(text: str) -> dict[str, object]:
         "summary": " ".join(summary_lines[:3]).strip() or None,
         "skills": _extract_skills(raw_text),
         "education": _bullets(sections.get("education") or [], max_items=5),
-        "projects": _bullets(sections.get("projects") or [], max_items=6),
-        "experience": _bullets(sections.get("experience") or [], max_items=8),
+        "projects": extract_projects_from_resume(raw_text),
+        "experience": experience_entries,
+        "measurable_impacts": measurable_impacts,
         "certifications": _bullets(sections.get("certifications") or [], max_items=5),
         "raw_text_available": bool(raw_text.strip()),
     }

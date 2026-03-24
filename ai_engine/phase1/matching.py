@@ -27,22 +27,51 @@ def _get_model() -> SentenceTransformer:
 def extract_text_from_file(file_path):
     try:
         if file_path.endswith(".pdf"):
-            text = ""
-            with open(file_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                for page in reader.pages:
-                    if page.extract_text():
-                        text += page.extract_text()
-            return text
+            # Use PyMuPDF (fitz) for robust PDF extraction
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open(file_path)
+                text = "\n".join(page.get_text("text") for page in doc)
+                text = re.sub(r'\n{3,}', '\n\n', text)  # Collapse excessive breaks
+                text = re.sub(r'[\x00-\x1F\x7F]+', '', text)  # Remove control chars
+                print("[DEBUG] PDF extracted text sample:\n", text[:500])
+                return text
+            except Exception as e:
+                print(f"[ERROR] PyMuPDF failed: {e}")
+                # fallback to PyPDF2 if fitz fails
+                try:
+                    import PyPDF2
+                    with open(file_path, "rb") as f:
+                        reader = PyPDF2.PdfReader(f)
+                        text = "\n".join(page.extract_text() or '' for page in reader.pages)
+                        text = re.sub(r'\n{3,}', '\n\n', text)
+                        text = re.sub(r'[\x00-\x1F\x7F]+', '', text)
+                        print("[DEBUG] PDF (PyPDF2) extracted text sample:\n", text[:500])
+                        return text
+                except Exception as e2:
+                    print(f"[ERROR] PyPDF2 fallback failed: {e2}")
+                    return ""
 
         elif file_path.endswith(".docx"):
-            doc = Document(file_path)
-            return "\n".join([para.text for para in doc.paragraphs])
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                text = "\n".join(para.text for para in doc.paragraphs if para.text.strip())
+                text = re.sub(r'\n{3,}', '\n\n', text)
+                text = re.sub(r'[\x00-\x1F\x7F]+', '', text)
+                print("[DEBUG] DOCX extracted text sample:\n", text[:500])
+                return text
+            except Exception as e:
+                print(f"[ERROR] python-docx failed: {e}")
+                return ""
 
         elif file_path.endswith(".txt"):
             with open(file_path, "r", encoding="utf-8") as f:
-                return f.read()
-    except:
+                text = f.read()
+                print("[DEBUG] TXT extracted text sample:\n", text[:500])
+                return text
+    except Exception as e:
+        print(f"[ERROR] extract_text_from_file failed: {e}")
         return ""
 
     return ""
