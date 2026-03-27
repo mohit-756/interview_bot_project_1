@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -41,34 +42,48 @@ def _local_dimension_breakdown(question: InterviewQuestion, answer_text: str) ->
 
 
 def _fallback_evaluation(question: InterviewQuestion, answer_text: str) -> dict[str, object]:
-    dims = _local_dimension_breakdown(question, answer_text)
-    overall = round(sum(dims.values()) / len(dims), 1)
-    strengths = []
-    weaknesses = []
-    if dims["relevance"] >= 65:
-        strengths.append("The answer stayed relevant to the question.")
-    else:
-        weaknesses.append("The answer did not fully address the main intent of the question.")
-    if dims["clarity"] >= 60:
-        strengths.append("The explanation was reasonably clear and understandable.")
-    else:
-        weaknesses.append("The explanation could be structured more clearly.")
-    if dims["completeness"] >= 65:
-        strengths.append("The answer covered multiple useful points.")
-    else:
-        weaknesses.append("More concrete detail or examples were needed.")
-    reference = question.reference_answer or "A strong answer should directly answer the question, use practical examples, and explain the reasoning behind decisions."
-    return {
-        "question": question.text,
-        "candidate_answer": answer_text,
-        "generated_reference_answer": reference,
-        "score": overall,
-        "feedback": "Scored using the local evaluation fallback. The answer was checked for relevance, clarity, completeness, and practical depth.",
-        "strengths": strengths[:3],
-        "weaknesses": weaknesses[:3],
-        "section": question.question_type or "project",
-        "dimension_breakdown": dims,
-    }
+    try:
+        dims = _local_dimension_breakdown(question, answer_text)
+        overall = round(sum(dims.values()) / len(dims), 1)
+        strengths = []
+        weaknesses = []
+        if dims["relevance"] >= 65:
+            strengths.append("The answer stayed relevant to the question.")
+        else:
+            weaknesses.append("The answer did not fully address the main intent of the question.")
+        if dims["clarity"] >= 60:
+            strengths.append("The explanation was reasonably clear and understandable.")
+        else:
+            weaknesses.append("The explanation could be structured more clearly.")
+        if dims["completeness"] >= 65:
+            strengths.append("The answer covered multiple useful points.")
+        else:
+            weaknesses.append("More concrete detail or examples were needed.")
+        reference = question.reference_answer or "A strong answer should directly answer the question, use practical examples, and explain the reasoning behind decisions."
+        return {
+            "question": question.text,
+            "candidate_answer": answer_text,
+            "generated_reference_answer": reference,
+            "score": overall,
+            "feedback": "Scored using the local evaluation fallback. The answer was checked for relevance, clarity, completeness, and practical depth.",
+            "strengths": strengths[:3],
+            "weaknesses": weaknesses[:3],
+            "section": question.question_type or "project",
+            "dimension_breakdown": dims,
+        }
+    except Exception as exc:
+        logger.error("Extreme fallback triggered in _fallback_evaluation: %s", exc)
+        return {
+            "question": question.text,
+            "candidate_answer": answer_text,
+            "generated_reference_answer": question.reference_answer or "A strong answer should directly answer the question, use practical examples, and explain the reasoning behind decisions.",
+            "score": 50,
+            "feedback": "Scored using the emergency evaluation fallback.",
+            "strengths": ["The candidate provided an answer."],
+            "weaknesses": ["The answer could not be properly evaluated due to an internal error."],
+            "section": question.question_type or "project",
+            "dimension_breakdown": {"relevance": 50, "correctness": 50, "completeness": 50, "clarity": 50, "confidence": 50},
+        }
 
 
 def _upsert_llm_fields(db: Session, session_id: int, question: InterviewQuestion, evaluation: dict[str, object]) -> None:
@@ -94,12 +109,15 @@ def run_evaluation_task(session_id: int) -> None:
     """Background task to evaluate interview answers."""
     db = SessionLocal()
     try:
-        session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
-        if not session or session.llm_eval_status in ("completed", "running"):
-            return
-
-        session.llm_eval_status = "running"
+        rows_updated = db.query(InterviewSession).filter(
+            InterviewSession.id == session_id,
+            (InterviewSession.llm_eval_status == None) | (InterviewSession.llm_eval_status == "pending")
+        ).update({"llm_eval_status": "running"}, synchronize_session=False)
         db.commit()
+
+        if rows_updated == 0:
+            logger.info("Evaluation for session %s already running or completed. Skipping background task.", session_id)
+            return
 
         questions = db.query(InterviewQuestion).filter(InterviewQuestion.session_id == session_id).order_by(InterviewQuestion.id.asc()).all()
         scored = 0
@@ -164,12 +182,23 @@ def evaluate_interview(
     if not session:
         raise HTTPException(status_code=404, detail="Interview session not found")
 
-    # Make idempotent
-    if session.llm_eval_status in ("completed", "running"):
-        return {"ok": True, "session_id": session_id, "status": session.llm_eval_status, "message": "Evaluation already running or completed."}
-
-    session.llm_eval_status = "running"
+    # Atomic lock
+    rows_updated = db.query(InterviewSession).filter(
+        InterviewSession.id == session_id,
+        (InterviewSession.llm_eval_status == None) | (InterviewSession.llm_eval_status == "pending")
+    ).update({"llm_eval_status": "running"}, synchronize_session=False)
     db.commit()
+
+    if rows_updated == 0:
+        # Another thread (like the background task) already took the lock. 
+        # Wait for it to finish so the frontend spinner stays active.
+        db.refresh(session)
+        for _ in range(30):
+            if session.llm_eval_status in ("completed", "failed"):
+                break
+            time.sleep(2)
+            db.refresh(session)
+        return {"ok": True, "session_id": session_id, "status": session.llm_eval_status, "message": "Evaluation handled by background task."}
 
     questions = db.query(InterviewQuestion).filter(InterviewQuestion.session_id == session_id).order_by(InterviewQuestion.id.asc()).all()
     scored = 0

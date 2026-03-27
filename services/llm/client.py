@@ -69,6 +69,7 @@ class _GeminiChatCompletionsAdapter:
             "generationConfig": {
                 "temperature": float(temperature),
                 "maxOutputTokens": int(max_tokens),
+                "responseMimeType": "application/json",
             }
         }
         

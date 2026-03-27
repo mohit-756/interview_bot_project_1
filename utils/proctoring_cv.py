@@ -23,57 +23,67 @@ _LAST_PERIODIC_SAVE: dict[int, float] = {}
 
 
 def analyze_frame(session_id: int, raw_bytes: bytes) -> dict[str, object]:
-    if cv2 is None or np is None or not _is_cascade_ready(_FACE_CASCADE):
+    try:
+        if cv2 is None or np is None or not _is_cascade_ready(_FACE_CASCADE):
+            return {
+                "ok": True,
+                "faces_count": 1,
+                "motion_score": 0.0,
+                "face_signature": None,
+                "face_box": None,
+                "upper_bodies_count": 0,
+                "left_shoulder_visibility": None,
+                "right_shoulder_visibility": None,
+                "shoulder_score": None,
+                "shoulder_present": None,
+                "shoulder_model_enabled": False,
+                "error": None,
+                "opencv_enabled": False,
+            }
+
+        frame = _decode_frame(raw_bytes)
+        if frame is None:
+            return {
+                "ok": False,
+                "faces_count": 0,
+                "motion_score": 0.0,
+                "face_signature": None,
+                "error": "Invalid frame payload",
+                "opencv_enabled": True,
+            }
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(50, 50))
+        faces_count = int(len(faces))
+        face_box = _as_box(faces[0]) if faces_count == 1 else None
+        face_signature = _face_signature(gray, face_box) if face_box else None
+        motion_score = _motion_score(session_id, gray)
+        shoulder_data = _shoulder_metrics(gray, faces, face_box)
+
         return {
             "ok": True,
-            "faces_count": 1,
-            "motion_score": 0.0,
-            "face_signature": None,
-            "face_box": None,
-            "upper_bodies_count": 0,
-            "left_shoulder_visibility": None,
-            "right_shoulder_visibility": None,
-            "shoulder_score": None,
-            "shoulder_present": None,
-            "shoulder_model_enabled": False,
+            "faces_count": faces_count,
+            "motion_score": float(motion_score),
+            "face_signature": face_signature,
+            "face_box": face_box,
+            "upper_bodies_count": int(shoulder_data["upper_bodies_count"]),
+            "left_shoulder_visibility": shoulder_data["left_shoulder_visibility"],
+            "right_shoulder_visibility": shoulder_data["right_shoulder_visibility"],
+            "shoulder_score": shoulder_data["shoulder_score"],
+            "shoulder_present": shoulder_data["shoulder_present"],
+            "shoulder_model_enabled": shoulder_data["shoulder_model_enabled"],
             "error": None,
-            "opencv_enabled": False,
+            "opencv_enabled": True,
         }
-
-    frame = _decode_frame(raw_bytes)
-    if frame is None:
+    except Exception as exc:
         return {
             "ok": False,
             "faces_count": 0,
             "motion_score": 0.0,
             "face_signature": None,
-            "error": "Invalid frame payload",
+            "error": f"Internal cv error: {exc}",
             "opencv_enabled": True,
         }
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(50, 50))
-    faces_count = int(len(faces))
-    face_box = _as_box(faces[0]) if faces_count == 1 else None
-    face_signature = _face_signature(gray, face_box) if face_box else None
-    motion_score = _motion_score(session_id, gray)
-    shoulder_data = _shoulder_metrics(gray, faces, face_box)
-
-    return {
-        "ok": True,
-        "faces_count": faces_count,
-        "motion_score": float(motion_score),
-        "face_signature": face_signature,
-        "face_box": face_box,
-        "upper_bodies_count": int(shoulder_data["upper_bodies_count"]),
-        "left_shoulder_visibility": shoulder_data["left_shoulder_visibility"],
-        "right_shoulder_visibility": shoulder_data["right_shoulder_visibility"],
-        "shoulder_score": shoulder_data["shoulder_score"],
-        "shoulder_present": shoulder_data["shoulder_present"],
-        "shoulder_model_enabled": shoulder_data["shoulder_model_enabled"],
-        "error": None,
-        "opencv_enabled": True,
-    }
 
 
 def compare_signatures(signature_a: list[float], signature_b: list[float]) -> float | None:

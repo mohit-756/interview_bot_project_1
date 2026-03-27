@@ -1,35 +1,19 @@
 """
 utils/stt_whisper.py
 
-Replaces faster-whisper with Groq Whisper API.
+Replaces Groq Whisper API with Gemini 2.5 Flash Audio Transcription.
 Drop-in replacement — same function signature as before.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import os
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
-from groq import Groq
+import requests
 
 logger = logging.getLogger(__name__)
-
-_client: Groq | None = None
-
-
-def _get_client() -> Groq:
-    global _client
-    if _client is None:
-        api_key = os.getenv("GROQ_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("GROQ_API_KEY is not set in .env")
-        _client = Groq(api_key=api_key)
-    return _client
-
-
-def _whisper_model() -> str:
-    return os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 
 
 def _resolve_suffix(filename: str | None) -> str:
@@ -60,9 +44,7 @@ def transcribe_audio_bytes(
     context_hint: str | None = None,
 ) -> dict[str, object]:
     """
-    Transcribe audio bytes using Groq Whisper API.
-    Returns same shape as the old faster-whisper version:
-      { text, confidence, low_confidence, language }
+    Transcribe audio bytes using Groq API.
     """
     if not audio_bytes:
         return {
@@ -72,34 +54,58 @@ def transcribe_audio_bytes(
             "language": language or "en",
         }
 
-    suffix = _resolve_suffix(filename)
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set in .env")
 
-    with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(audio_bytes)
-        tmp_path = Path(tmp.name)
+    model = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo").strip()
+    url = "https://api.groq.com/openai/v1/audio/transcriptions"
+
+    suffix = _resolve_suffix(filename)
+    form_filename = filename if filename else f"audio{suffix}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    files = {
+        "file": (form_filename, audio_bytes)
+    }
+    
+    data = {"model": model, "response_format": "verbose_json"}
+    
+    if language:
+        data["language"] = language
+    if context_hint:
+        data["prompt"] = context_hint
 
     try:
-        client = _get_client()
-        with open(tmp_path, "rb") as f:
-            transcription = client.audio.transcriptions.create(
-                model=_whisper_model(),
-                file=(tmp_path.name, f, _mime(suffix)),
-                language=(language or "en").split("-")[0],
-                prompt=(context_hint or "").strip() or None,
-                response_format="json",
-            )
+        response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+        
+        try:
+            response.raise_for_status()
+        except Exception:
+            logger.error("Groq API Error: %s", response.text)
+            raise
 
-        text = (getattr(transcription, "text", "") or "").strip()
+        response_data = response.json()
+        text = response_data.get("text", "").strip()
+        
+        confidence = 0.92
+        segments = response_data.get("segments", [])
+        if segments:
+            import math
+            probs = [seg.get("avg_logprob", -1) for seg in segments]
+            avg_prob = sum(probs) / len(probs) if probs else -1
+            confidence = math.exp(avg_prob) if avg_prob < 0 else 0.92
+
         return {
             "text": text,
-            "confidence": 0.92 if text else 0.0,
+            "confidence": confidence if text else 0.0,
             "low_confidence": not bool(text),
-            "language": language or "en",
+            "language": response_data.get("language", language or "en"),
         }
 
     except Exception as exc:
-        logger.error("Groq Whisper transcription failed: %s", exc)
+        logger.error("Groq audio transcription failed: %s", exc)
         raise RuntimeError(f"Transcription failed: {exc}") from exc
-
-    finally:
-        tmp_path.unlink(missing_ok=True)

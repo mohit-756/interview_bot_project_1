@@ -846,7 +846,7 @@ def _call_llm(structured_input: StructuredQuestionInput, question_count: int, re
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.25 if retry_note else 0.35,
-            max_tokens=2400,
+            max_tokens=8000,
         )
         logger.info("llm_question_request_success provider=%s model=%s retry=%s", provider, model, bool(retry_note))
     except Exception as exc:
@@ -1196,6 +1196,82 @@ def _runtime_bundle_from_fallback(
     }
 
 
+EMERGENCY_FALLBACK_QUESTIONS = [
+    {
+        "text": "Could you briefly walk me through your background and the most recent role on your resume?",
+        "category": "intro",
+        "type": "intro",
+        "difficulty": "easy",
+        "topic": "background",
+        "intent": "Assess candidate background and communication.",
+        "priority_source": "baseline",
+    },
+    {
+        "text": "Tell me about a time when you had to manage conflicting priorities or navigate a difficult stakeholder conversation to deliver a project on time.",
+        "category": "behavioral",
+        "type": "hr",
+        "difficulty": "medium",
+        "topic": "stakeholder management",
+        "intent": "Assess behavioral depth, conflict resolution, and communication.",
+        "priority_source": "derived",
+    },
+    {
+        "text": "Describe a recent technical challenge you faced. What was the root cause, and how did you resolve it?",
+        "category": "deep_dive",
+        "type": "project",
+        "difficulty": "medium",
+        "topic": "problem solving",
+        "intent": "Assess analytical and debugging skills.",
+        "priority_source": "derived",
+    },
+    {
+        "text": "Walk me through how you would design a system to scale 10x from its current load. What are the key bottlenecks you would anticipate?",
+        "category": "architecture",
+        "type": "project",
+        "difficulty": "hard",
+        "topic": "system design",
+        "intent": "Assess architectural thinking and scalability considerations.",
+        "priority_source": "derived",
+    },
+    {
+        "text": "How do you ensure the code you deliver is maintainable and reliable over time?",
+        "category": "deep_dive",
+        "type": "project",
+        "difficulty": "medium",
+        "topic": "software engineering practices",
+        "intent": "Assess understanding of testing, review, and quality standards.",
+        "priority_source": "derived",
+    },
+    {
+        "text": "Tell me about a time you had to learn a new technology quickly to deliver a critical feature.",
+        "category": "behavioral",
+        "type": "hr",
+        "difficulty": "medium",
+        "topic": "adaptability",
+        "intent": "Assess learning agility and execution under pressure.",
+        "priority_source": "derived",
+    },
+    {
+        "text": "What is the most complex bug you've had to debug in production, and what tools did you use?",
+        "category": "deep_dive",
+        "type": "project",
+        "difficulty": "hard",
+        "topic": "debugging",
+        "intent": "Assess deep technical troubleshooting.",
+        "priority_source": "derived",
+    },
+    {
+        "text": "How do you approach trading off between building the perfect technical solution versus delivering quickly to meet business needs?",
+        "category": "leadership",
+        "type": "hr",
+        "difficulty": "medium",
+        "topic": "trade-offs",
+        "intent": "Assess business acumen and pragmatic engineering.",
+        "priority_source": "derived",
+    }
+]
+
+
 def generate_question_bundle_with_fallback(
     *,
     resume_text: str,
@@ -1208,12 +1284,17 @@ def generate_question_bundle_with_fallback(
     desired_count = max(2, min(20, int(question_count or 8)))
     provider = _llm_provider()
     model = _llm_model()
-    fallback_bundle = _build_fallback_bundle(
-        resume_text=resume_text,
-        jd_title=jd_title,
-        jd_skill_scores=jd_skill_scores,
-        question_count=desired_count,
-    )
+    
+    try:
+        fallback_bundle = _build_fallback_bundle(
+            resume_text=resume_text,
+            jd_title=jd_title,
+            jd_skill_scores=jd_skill_scores,
+            question_count=desired_count,
+        )
+    except Exception as exc:
+        logger.error("Fallback bundle generation failed completely: %s", exc)
+        fallback_bundle = {"questions": EMERGENCY_FALLBACK_QUESTIONS[:desired_count]}
 
     try:
         llm_bundle = generate_llm_questions(
@@ -1243,9 +1324,6 @@ def generate_question_bundle_with_fallback(
         original_len = len(questions)
         questions = _enforce_category_coverage(questions, list(fallback_bundle.get("questions") or []))
         if len(questions) != original_len or any(q.get("category") in {"intro", "behavioral"} for q in questions) and not llm_topped_up_with_fallback:
-            # We don't change llm_topped_up_with_fallback just for category swaps, 
-            # but if it was missing entirely and now we have it, it's a fallback swap.
-            # We'll just set it to True if we actually used fallback stuff
             llm_topped_up_with_fallback = True
             
         logger.info(
@@ -1267,6 +1345,16 @@ def generate_question_bundle_with_fallback(
     except Exception as exc:
         logger.warning("LLM question generation failed, using deterministic fallback: %s", exc)
         fallback_questions = list(fallback_bundle.get("questions") or [])
+        
+        if not fallback_questions or len(fallback_questions) < desired_count:
+            # Complete failure, use emergency questions
+            fallback_questions = EMERGENCY_FALLBACK_QUESTIONS[:desired_count]
+        else:
+            # Enforce explicitly required categories for the fallback plan as well
+            fallback_questions = _enforce_category_coverage(fallback_questions, fallback_questions)
+            
+        fallback_bundle["questions"] = fallback_questions
+        
         logger.warning(
             "LLM_FAILED provider=%s model=%s question_count_requested=%s question_count_returned=%s fallback_used=%s error=%s",
             provider,
@@ -1276,12 +1364,41 @@ def generate_question_bundle_with_fallback(
             True,
             exc,
         )
-        structured_input = build_structured_question_input(
-            resume_text=resume_text,
-            jd_title=jd_title,
-            jd_skill_scores=jd_skill_scores or {},
-            jd_text=jd_text,
-        )
+        try:
+            structured_input = build_structured_question_input(
+                resume_text=resume_text,
+                jd_title=jd_title,
+                jd_skill_scores=jd_skill_scores or {},
+                jd_text=jd_text,
+            )
+        except Exception:
+            structured_input = StructuredQuestionInput(
+                role=jd_title or "Interview Role",
+                role_title=jd_title or "Interview Role",
+                role_family="engineer",
+                seniority="mid",
+                experience_level="mid",
+                jd_title=jd_title or "Interview Role",
+                jd_summary="",
+                jd_core_skills=[],
+                jd_secondary_skills=[],
+                jd_responsibilities=[],
+                jd_skills=[],
+                jd_skill_weights={},
+                resume_summary="",
+                resume_recent_roles=[],
+                resume_skills=[],
+                resume_projects=[],
+                resume_project_technologies=[],
+                resume_experiences=[],
+                resume_leadership_signals=[],
+                resume_measurable_impact=[],
+                certifications=[],
+                overlap_skills=[],
+                resume_only_skills=[],
+                jd_only_skills=[],
+            )
+
         return _runtime_bundle_from_fallback(
             fallback_bundle=fallback_bundle,
             fallback_reason=str(exc),
