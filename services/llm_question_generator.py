@@ -10,7 +10,7 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
-from services.llm.client import _clean_json, _get_client, _llm_model, _llm_provider
+from services.llm.client import _clean_json, _get_client, _llm_model, _llm_premium_model, _llm_provider
 from services.question_plan import build_question_plan
 from services.resume_parser import parse_resume_text
 
@@ -820,7 +820,7 @@ def _normalize_llm_questions(
 def _call_llm(structured_input: StructuredQuestionInput, question_count: int, retry_note: str | None = None) -> dict[str, Any]:
     user_prompt = _llm_user_prompt(structured_input, question_count, retry_note=retry_note)
     provider = _llm_provider()
-    model = _llm_model()
+    model = _llm_premium_model()
     logger.info(
         "LLM_CALL_START provider=%s model=%s question_count_requested=%s question_count_returned=%s fallback_used=%s retry=%s",
         provider,
@@ -949,7 +949,7 @@ def generate_llm_questions(
         "structured_input": asdict(structured_input),
         "system_prompt": LLM_QUESTION_SYSTEM_PROMPT,
         "user_prompt": final_user_prompt,
-        "llm_model": _llm_model(),
+        "llm_model": _llm_premium_model(),
         "quality": quality,
     }
 
@@ -1283,7 +1283,7 @@ def generate_question_bundle_with_fallback(
 ) -> dict[str, Any]:
     desired_count = max(2, min(20, int(question_count or 8)))
     provider = _llm_provider()
-    model = _llm_model()
+    model = _llm_premium_model()
     
     try:
         fallback_bundle = _build_fallback_bundle(

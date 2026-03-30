@@ -123,7 +123,7 @@ function analyseVoiceConfidence(transcript, durationSeconds) {
 }
 
 // ── main hook ─────────────────────────────────────────────────────────────────
-export function useProctoring({ sessionId, videoRef, enabled = true }) {
+export function useProctoring({ sessionId, resultId, videoRef, enabled = true }) {
   const [proctoringEvents, setProctoringEvents] = useState([]);
   const [voiceMetrics, setVoiceMetrics]         = useState(null);
   const [emotionSignal, setEmotionSignal]        = useState(null);
@@ -151,9 +151,10 @@ export function useProctoring({ sessionId, videoRef, enabled = true }) {
       if (document.hidden) {
         const event = { type: "TAB_SWITCH", detail: "Candidate switched browser tab" };
         pushEvent(event);
-        // Best-effort send to backend (fire-and-forget)
-        if (sessionId) {
-          fetch(`/api/interview/${sessionId}/event`, {
+        // Use resultId (token) for the event endpoint — falls back to sessionId if resultId is missing.
+        const eventTargetId = resultId || sessionId;
+        if (eventTargetId) {
+          fetch(`/api/interview/${eventTargetId}/event`, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
@@ -170,7 +171,7 @@ export function useProctoring({ sessionId, videoRef, enabled = true }) {
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [enabled, sessionId, pushEvent]);
+  }, [enabled, sessionId, resultId, pushEvent]);
 
   // ── 2. EMOTION DETECTION (lightweight, auto-disables on low FPS) ──────────
   useEffect(() => {

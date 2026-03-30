@@ -23,28 +23,42 @@ def _clean_json(raw: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _resolve_llm_config() -> dict[str, str]:
+def _resolve_llm_config() -> dict[str, Any]:
     provider = (os.getenv("LLM_PROVIDER") or "gemini").strip().lower()
 
-    if provider == "gemini":
-        model = os.getenv("LLM_MODEL", "gemini-2.5-flash").strip()
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    else:
-        model = _DEFAULT_OLLAMA_MODEL
-        api_key = ""
+    standard_model = os.getenv("LLM_STANDARD_MODEL", "gemini-1.5-flash").strip()
+    premium_model = os.getenv("LLM_PREMIUM_MODEL", "gemini-1.5-pro").strip()
+    
+    # Support multiple API keys for load distribution
+    api_keys = [
+        os.getenv("GEMINI_API_KEY", "").strip(),
+        os.getenv("GEMINI_API_KEY_SECONDARY", "").strip(),
+    ]
+    api_keys = [k for k in api_keys if k]
 
     return {
         "provider": provider,
-        "api_key": api_key,
-        "model": model,
+        "api_keys": api_keys,
+        "standard_model": standard_model,
+        "premium_model": premium_model,
         "ollama_url": OLLAMA_CHAT_URL,
     }
 
 
 class _GeminiChatCompletionsAdapter:
-    def __init__(self, *, model: str, api_key: str) -> None:
-        self._model = model
-        self._api_key = api_key
+    def __init__(self, *, standard_model: str, premium_model: str, api_keys: list[str]) -> None:
+        self._standard_model = standard_model
+        self._premium_model = premium_model
+        self._api_keys = api_keys
+        self._key_index = 0
+
+    def _get_api_key(self) -> str:
+        if not self._api_keys:
+            raise RuntimeError("Missing GEMINI_API_KEY. Please add GEMINI_API_KEY to your .env file.")
+        # Simple round-robin for load distribution
+        key = self._api_keys[self._key_index]
+        self._key_index = (self._key_index + 1) % len(self._api_keys)
+        return key
 
     def create(
         self,
@@ -55,15 +69,15 @@ class _GeminiChatCompletionsAdapter:
         max_tokens: int = 800,
         **_: Any,
     ) -> Any:
-        chosen_model = (model or self._model).strip() or "gemini-2.5-flash"
-        if not self._api_key:
-            raise RuntimeError("Missing GEMINI_API_KEY. Please add GEMINI_API_KEY to your .env file.")
+        # Default to standard model if not specified
+        chosen_model = (model or self._standard_model).strip()
+        api_key = self._get_api_key()
 
         text_prompt = ""
         for m in messages:
             text_prompt += m.get("content", "") + "\n"
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen_model}:generateContent?key={self._api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen_model}:generateContent?key={api_key}"
         payload = {
             "contents": [{"parts": [{"text": text_prompt.strip()}]}],
             "generationConfig": {
@@ -149,14 +163,18 @@ class _ChatAdapter:
 
 
 class _LLMClientAdapter:
-    def __init__(self, *, provider: str, model: str, api_key: str, ollama_url: str) -> None:
+    def __init__(self, *, provider: str, standard_model: str, premium_model: str, api_keys: list[str], ollama_url: str) -> None:
         if provider == "gemini":
-            adapter = _GeminiChatCompletionsAdapter(model=model, api_key=api_key)
+            adapter = _GeminiChatCompletionsAdapter(
+                standard_model=standard_model,
+                premium_model=premium_model,
+                api_keys=api_keys
+            )
         else:
             adapter = _ChatCompletionsAdapter(
                 provider=provider,
-                model=model,
-                api_key=api_key,
+                model=standard_model,
+                api_key=api_keys[0] if api_keys else "",
                 ollama_url=ollama_url,
             )
         self.chat = _ChatAdapter(adapter)
@@ -166,16 +184,17 @@ class _LLMClientAdapter:
 def _get_client() -> _LLMClientAdapter:
     config = _resolve_llm_config()
     provider = config["provider"]
-    api_key = config["api_key"]
+    api_keys = config["api_keys"]
 
-    if provider == "ollama" and not config["model"]:
+    if provider == "ollama" and not config["standard_model"]:
         raise RuntimeError("Missing Ollama model. Set OLLAMA_MODEL (for example: qwen2.5-coder:3b).")
 
-    logger.info("llm_client_init provider=%s model=%s", provider, config["model"])
+    logger.info("llm_client_init provider=%s standard=%s premium=%s", provider, config["standard_model"], config["premium_model"])
     return _LLMClientAdapter(
         provider=provider,
-        model=config["model"],
-        api_key=api_key,
+        standard_model=config["standard_model"],
+        premium_model=config["premium_model"],
+        api_keys=api_keys,
         ollama_url=config["ollama_url"],
     )
 
@@ -185,7 +204,11 @@ def _llm_provider() -> str:
 
 
 def _llm_model() -> str:
-    return _resolve_llm_config()["model"]
+    return _resolve_llm_config()["standard_model"]
+
+
+def _llm_premium_model() -> str:
+    return _resolve_llm_config()["premium_model"]
 
 
 def extract_skills(jd_text: str) -> dict[str, int]:
@@ -244,7 +267,7 @@ Rules:
 - dimension_breakdown must contain integers 0-100 for relevance, correctness, completeness, clarity, confidence
 """
     response = _get_client().chat.completions.create(
-        model=_llm_model(),
+        model=_llm_premium_model(),
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         max_tokens=900,
