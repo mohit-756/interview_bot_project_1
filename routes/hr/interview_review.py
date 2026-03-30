@@ -381,6 +381,7 @@ class FinalizeBody(BaseModel):
 def finalize_interview(
     interview_id: int,
     payload: FinalizeBody,
+    background_tasks: BackgroundTasks,
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ):
@@ -401,6 +402,7 @@ def finalize_interview(
     session.ended_at = session.ended_at or session.started_at
 
     result = session.result
+    job = result.job
 
     # FIX: Write to dedicated columns — no longer merging into explanation JSON.
     result.hr_decision = payload.decision.lower()
@@ -434,29 +436,21 @@ def finalize_interview(
     # ── Automated Correspondence ─────────────────────────────────────────────
     # Trigger Selection or Rejection emails based on the HR decision.
     from utils.email_service import send_selection_email, send_rejection_email
-    from fastapi import BackgroundTasks
     
     candidate = session.candidate
-    job_title = job.jd_title if job else "Software Engineer"
+    job_title = job.jd_title if job and job.jd_title else "Software Engineer"
     
     if payload.decision.lower() == "selected":
-        # Using a simple function wrapper for direct background task compatibility if needed, 
-        # but the client-side call here is synchronous within this FastAPI route context.
-        # For a truly non-blocking UI, move these to background_tasks.
-        try:
-            send_selection_email(candidate.email, candidate.name, job_title)
-        except Exception as e:
-            logger.error("Failed to send selection email: %s", e)
+        # Dispatch email as a background task to prevent blocking the UI response.
+        background_tasks.add_task(send_selection_email, candidate.email, candidate.name, job_title)
     elif payload.decision.lower() == "rejected":
-        try:
-            send_rejection_email(candidate.email, candidate.name, job_title)
-        except Exception as e:
-            logger.error("Failed to send rejection email: %s", e)
+        background_tasks.add_task(send_rejection_email, candidate.email, candidate.name, job_title)
 
     db.commit()
     return {
         "ok": True,
         "status": session.status,
+# ...
         "hr_review": {
             "final_score": payload.final_score,
             "behavioral_score": payload.behavioral_score,
