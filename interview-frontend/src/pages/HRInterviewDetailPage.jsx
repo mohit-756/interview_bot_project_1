@@ -41,6 +41,8 @@ export default function HRInterviewDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reEvaluating, setReEvaluating] = useState(false);
+  const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
   const [reEvalMessage, setReEvalMessage] = useState("");
   const [decision, setDecision] = useState("selected");
   const [notes, setNotes] = useState("");
@@ -100,6 +102,20 @@ export default function HRInterviewDetailPage() {
     }
   }
 
+  async function handleSendFeedback() {
+    setSendingFeedback(true);
+    setFeedbackMessage("");
+    setError("");
+    try {
+      const resp = await hrApi.sendFeedbackEmail(id);
+      setFeedbackMessage(resp.message || "Feedback email sent successfully.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSendingFeedback(false);
+    }
+  }
+
   const suspiciousEvents = useMemo(() => (data?.events || []).filter((e) => e.suspicious), [data?.events]);
   const { avgLLMScore, pendingCount } = useMemo(() => {
     const questions = data?.questions || [];
@@ -119,10 +135,11 @@ export default function HRInterviewDetailPage() {
 
   return (
     <div className="space-y-8 pb-12">
-      <PageHeader title={`Interview — ${interview.candidate?.name || "Candidate"}`} subtitle={`${interview.job?.title || "Role"} · Application ${interview.application_id || interview.interview_id}`} actions={<div className="flex items-center gap-3 flex-wrap">{canReEvaluate && <button type="button" onClick={handleReEvaluate} disabled={reEvaluating} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold disabled:opacity-60 transition-all"><RefreshCw size={16} className={reEvaluating ? "animate-spin" : ""} />{reEvaluating ? "Starting…" : "Re-run AI Scoring"}</button>}<EvalStatusBadge status={evalStatus} /><StatusBadge status={interview.stage} /><button type="button" className="subtle-button" onClick={() => navigate(-1)}>Back</button></div>} />
+      <PageHeader title={`Interview — ${interview.candidate?.name || "Candidate"}`} subtitle={`${interview.job?.title || "Role"} · Application ${interview.application_id || interview.interview_id}`} actions={<div className="flex items-center gap-3 flex-wrap">{canReEvaluate && <button type="button" onClick={handleReEvaluate} disabled={reEvaluating} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold disabled:opacity-60 transition-all"><RefreshCw size={16} className={reEvaluating ? "animate-spin" : ""} />{reEvaluating ? "Starting…" : "Re-run AI Scoring"}</button>}<button type="button" onClick={handleSendFeedback} disabled={sendingFeedback} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold disabled:opacity-60 transition-all"><Sparkles size={16} />{sendingFeedback ? "Sending..." : "Send Feedback Email"}</button><EvalStatusBadge status={evalStatus} /><StatusBadge status={interview.stage} /><button type="button" className="subtle-button" onClick={() => navigate(-1)}>Back</button></div>} />
 
       {error && <p className="alert error">{error}</p>}
       {reEvalMessage && <p className="rounded-2xl border border-blue-200 bg-blue-50 text-blue-700 px-4 py-3 text-sm font-medium">{reEvalMessage}</p>}
+      {feedbackMessage && <p className="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-700 px-4 py-3 text-sm font-medium">{feedbackMessage}</p>}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard label="Status" value={interview.status} hint="Current outcome" />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Users, Target, FileText } from "lucide-react";
+import { ArrowLeft, Users, Target, FileText, Plus, Trash2 } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import StatusBadge from "../components/StatusBadge";
 import { hrApi } from "../services/api";
@@ -12,6 +12,9 @@ export default function HRJdDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("details");
+  const [customQuestions, setCustomQuestions] = useState([]);
+  const [newQuestion, setNewQuestion] = useState("");
+  const [savingCustom, setSavingCustom] = useState(false);
 
   const loadJdDetail = useCallback(async () => {
     setLoading(true);
@@ -19,6 +22,7 @@ export default function HRJdDetailPage() {
     try {
       const detailResponse = await hrApi.getJd(jdId);
       setJd(detailResponse.jd);
+      setCustomQuestions(detailResponse.jd?.custom_questions || []);
 
       try {
         const candidatesResponse = await hrApi.listCandidates();
@@ -39,6 +43,31 @@ export default function HRJdDetailPage() {
   useEffect(() => {
     loadJdDetail();
   }, [loadJdDetail]);
+
+  const handleAddQuestion = () => {
+    if (newQuestion.trim()) {
+      setCustomQuestions([...customQuestions, newQuestion.trim()]);
+      setNewQuestion("");
+    }
+  };
+
+  const handleRemoveQuestion = (index) => {
+    setCustomQuestions(customQuestions.filter((_, i) => i !== index));
+  };
+
+  const handleSaveCustomQuestions = async () => {
+    setSavingCustom(true);
+    setError("");
+    try {
+      const response = await hrApi.updateCustomQuestions(jdId, { questions: customQuestions });
+      setCustomQuestions(response.custom_questions || []);
+      // Maybe show a success toast
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingCustom(false);
+    }
+  };
 
   if (loading) {
     return <p className="center muted py-12">Loading JD details...</p>;
@@ -178,6 +207,34 @@ export default function HRJdDetailPage() {
                       </p>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
+                  Mandatory Questions
+                </h3>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-6 space-y-4">
+                  {customQuestions.map((q, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-white dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                      <p className="flex-1 text-sm text-slate-800 dark:text-slate-200">{q}</p>
+                      <button type="button" onClick={() => handleRemoveQuestion(i)} className="p-2 rounded-md text-slate-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                  {customQuestions.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">No mandatory questions set.</p>}
+                  <div className="flex items-center gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <input
+                      type="text"
+                      value={newQuestion}
+                      onChange={(e) => setNewQuestion(e.target.value)}
+                      placeholder="Add a new mandatory question..."
+                      className="flex-1 px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-sm dark:text-white"
+                    />
+                    <button type="button" onClick={handleAddQuestion} className="p-3 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/60"><Plus size={18} /></button>
+                  </div>
+                  <button type="button" onClick={handleSaveCustomQuestions} disabled={savingCustom} className="w-full mt-4 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-60">
+                    {savingCustom ? "Saving..." : "Save Mandatory Questions"}
+                  </button>
                 </div>
               </div>
             </div>

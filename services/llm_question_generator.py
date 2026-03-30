@@ -951,17 +951,29 @@ def _generate_validated_llm_questions(
 ) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
     requested_count = max(2, int(question_count))
     first_attempt = _call_llm(structured_input, requested_count)
-    all_issues = _validate_question_set(first_attempt["questions"], structured_input, requested_count)
+    first_issues = _validate_question_set(first_attempt["questions"], structured_input, requested_count)
 
     final_questions = first_attempt["questions"]
     final_user_prompt = first_attempt["user_prompt"]
-    # Quota optimization: Disable automatic retries for Free Tier accounts (20 req/day)
-    # This saves one LLM call per interview start.
+    retry_issues: list[str] = []
+    retry_used = False
+
+    if first_issues:
+        retry_used = True
+        retry_note = _retry_note_for_issues(first_issues)
+        second_attempt = _call_llm(structured_input, requested_count, retry_note=retry_note)
+        retry_issues = _validate_question_set(second_attempt["questions"], structured_input, requested_count)
+
+        # Keep the second attempt unless it is clearly worse and the first was already acceptable.
+        if len(retry_issues) <= len(first_issues):
+            final_questions = second_attempt["questions"]
+            final_user_prompt = second_attempt["user_prompt"]
+
     quality = {
-        "first_attempt_issues": all_issues,
-        "retry_used": False,
-        "retry_issues": [],
-        "final_issues": all_issues,
+        "first_attempt_issues": first_issues,
+        "retry_used": retry_used,
+        "retry_issues": retry_issues,
+        "final_issues": retry_issues if retry_used else first_issues,
     }
     return final_questions, final_user_prompt, quality
 

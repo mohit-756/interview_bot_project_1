@@ -27,10 +27,22 @@ def _clean_json(raw: str) -> str:
 
 @lru_cache(maxsize=1)
 def _resolve_llm_config() -> dict[str, Any]:
-    provider = (os.getenv("LLM_PROVIDER") or "gemini").strip().lower()
+    explicit_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    ollama_model = os.getenv("OLLAMA_MODEL", _DEFAULT_OLLAMA_MODEL).strip() or _DEFAULT_OLLAMA_MODEL
 
-    standard_model = os.getenv("LLM_STANDARD_MODEL", "gemini-1.5-flash").strip()
-    premium_model = os.getenv("LLM_PREMIUM_MODEL", "gemini-1.5-pro").strip()
+    if explicit_provider:
+        provider = explicit_provider
+    elif os.getenv("OLLAMA_MODEL"):
+        provider = "ollama"
+    else:
+        provider = "gemini"
+
+    if provider == "ollama":
+        standard_model = ollama_model
+        premium_model = ollama_model
+    else:
+        standard_model = os.getenv("LLM_STANDARD_MODEL", "gemini-1.5-flash").strip()
+        premium_model = os.getenv("LLM_PREMIUM_MODEL", "gemini-1.5-pro").strip()
     
     # Support multiple API keys for load distribution
     api_keys = [
