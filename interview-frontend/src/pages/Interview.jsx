@@ -738,6 +738,25 @@ export default function Interview() {
                 placeholder="Whisper transcript appears here. You can edit before submitting."
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
+                onPaste={(e) => {
+                  const pastedText = e.clipboardData.getData("text");
+                  if (pastedText.length > 10) {
+                    const eventTargetId = resultId || sessionId;
+                    if (eventTargetId) {
+                      fetch(`/api/interview/${eventTargetId}/event`, {
+                        method: "POST",
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          event_type: "paste_detected",
+                          detail: `Candidate pasted ${pastedText.length} characters`,
+                          timestamp: new Date().toISOString(),
+                          meta: { length: pastedText.length },
+                        }),
+                      }).catch(() => {});
+                    }
+                  }
+                }}
               />
 
               {transcriptionWarning && (

@@ -1459,3 +1459,69 @@ def generate_question_bundle_with_fallback(
             project_ratio=project_ratio,
             structured_input=structured_input,
         )
+
+
+# --- Adaptive Probing (Phase 2) ---
+
+FOLLOWUP_QUESTION_SYSTEM_PROMPT = """You are a highly experienced technical interviewer. 
+The candidate just gave an answer that was either too short, too vague, or lacked technical depth.
+Your goal is to generate exactly ONE follow-up question to probe deeper into their specific implementation, decision, or result.
+
+RULES:
+- Reference the original question and the candidate's partial answer.
+- Ask for a specific detail, trade-off, or "how" / "why" that was missing.
+- The question must be a single sentence ending with a single "?".
+- Keep it surgical and grounded in the context of their resume.
+- Do NOT repeat the original question.
+- Do NOT ask more than one question.
+
+Return a JSON object:
+{
+  "text": "string — the surgical follow-up question",
+  "intent": "string — what specific depth this probes",
+  "reference_answer": "string — what a strong technical deep-dive answer would cover"
+}
+"""
+
+
+def generate_followup_question(
+    original_question: str,
+    candidate_answer: str,
+    resume_text: str = "",
+) -> dict[str, Any] | None:
+    """Generate a surgical follow-up question using the LLM."""
+    provider = _llm_provider()
+    model = _llm_premium_model()
+    
+    user_prompt = f"RESUME CONTEXT (Optional):\n{resume_text[:2000]}\n\nORIGINAL QUESTION: {original_question}\n\nCANDIDATE ANSWER: {candidate_answer}\n\nGenerate a deep-probe follow-up question."
+
+    logger.info("llm_followup_request_start provider=%s model=%s", provider, model)
+    try:
+        response = _get_client().chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": FOLLOWUP_QUESTION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=1000,
+        )
+        data = _extract_json_object(response.choices[0].message.content or "")
+        
+        # Validation
+        text = _clean(data.get("text"))
+        if not text or "?" not in text or text.count("?") > 1:
+            return None
+            
+        logger.info("llm_followup_request_success text=%r", text[:100])
+        return {
+            "text": text,
+            "intent": _clean(data.get("intent")) or "Deep-probe clarification.",
+            "reference_answer": _clean(data.get("reference_answer")) or "A detailed explanation of the implementation and decisions.",
+            "type": "followup",
+            "category": "deep_dive",
+            "difficulty": "hard",
+        }
+    except Exception as exc:
+        logger.warning("llm_followup_request_failed error=%s", exc)
+        return None

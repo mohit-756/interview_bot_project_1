@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from ai_engine.phase1.scoring import compute_interview_scoring, compute_resume_skill_match
@@ -1273,3 +1273,41 @@ def hr_interview_score(
     db.refresh(result)
 
     return {"ok": True, "result_id": result.id, **scorecard}
+
+
+@router.get("/hr/interviews/{session_id}/export-pdf")
+def hr_export_interview_pdf(
+    session_id: int,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+):
+    """Generate and download a comprehensive PDF report for an interview session."""
+    from services.pdf_report import generate_interview_pdf
+
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Interview session not found")
+
+    # Verify HR ownership
+    result = db.query(Result).filter(Result.id == session.result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    if not job or job.company_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to export this report")
+
+    if session.status != "completed":
+         # Optional: you could allow partial reports, but usually best after completion
+         pass
+
+    pdf_buffer = generate_interview_pdf(session, db)
+    candidate = db.query(Candidate).filter(Candidate.id == session.candidate_id).first()
+    safe_name = (candidate.name or "Candidate").replace(" ", "_")
+    filename = f"Interview_Report_{safe_name}_{session.id}.pdf"
+
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

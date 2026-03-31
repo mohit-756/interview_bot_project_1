@@ -1,23 +1,36 @@
 import re
+import logging
 from threading import Lock
 
-import PyPDF2
-from docx import Document
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+logger = logging.getLogger(__name__)
+
+# --- Safe Dependency Imports ---
+SEMANTIC_SEARCH_ENABLED = True
+try:
+    from sentence_transformers import SentenceTransformer
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:
+    logger.warning("Lite Mode: sentence-transformers or scikit-learn not found. Falling back to keyword matching.")
+    SEMANTIC_SEARCH_ENABLED = False
 
 _MODEL: SentenceTransformer | None = None
 _MODEL_LOCK = Lock()
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model() -> SentenceTransformer | None:
     global _MODEL
+    if not SEMANTIC_SEARCH_ENABLED:
+        return None
     if _MODEL is not None:
         return _MODEL
 
     with _MODEL_LOCK:
         if _MODEL is None:
-            _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+            try:
+                _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception as exc:
+                logger.error(f"Failed to load SentenceTransformer: {exc}")
+                return None
     return _MODEL
 
 
@@ -25,6 +38,8 @@ def _get_model() -> SentenceTransformer:
 # TEXT EXTRACTION
 # --------------------------------------------------
 def extract_text_from_file(file_path):
+    if not file_path:
+        return ""
     try:
         if file_path.endswith(".pdf"):
             # Use PyMuPDF (fitz) for robust PDF extraction
@@ -34,10 +49,8 @@ def extract_text_from_file(file_path):
                 text = "\n".join(page.get_text("text") for page in doc)
                 text = re.sub(r'\n{3,}', '\n\n', text)  # Collapse excessive breaks
                 text = re.sub(r'[\x00-\x1F\x7F]+', '', text)  # Remove control chars
-                print("[DEBUG] PDF extracted text sample:\n", text[:500])
                 return text
             except Exception as e:
-                print(f"[ERROR] PyMuPDF failed: {e}")
                 # fallback to PyPDF2 if fitz fails
                 try:
                     import PyPDF2
@@ -46,10 +59,8 @@ def extract_text_from_file(file_path):
                         text = "\n".join(page.extract_text() or '' for page in reader.pages)
                         text = re.sub(r'\n{3,}', '\n\n', text)
                         text = re.sub(r'[\x00-\x1F\x7F]+', '', text)
-                        print("[DEBUG] PDF (PyPDF2) extracted text sample:\n", text[:500])
                         return text
                 except Exception as e2:
-                    print(f"[ERROR] PyPDF2 fallback failed: {e2}")
                     return ""
 
         elif file_path.endswith(".docx"):
@@ -59,19 +70,19 @@ def extract_text_from_file(file_path):
                 text = "\n".join(para.text for para in doc.paragraphs if para.text.strip())
                 text = re.sub(r'\n{3,}', '\n\n', text)
                 text = re.sub(r'[\x00-\x1F\x7F]+', '', text)
-                print("[DEBUG] DOCX extracted text sample:\n", text[:500])
                 return text
             except Exception as e:
-                print(f"[ERROR] python-docx failed: {e}")
                 return ""
 
         elif file_path.endswith(".txt"):
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-                print("[DEBUG] TXT extracted text sample:\n", text[:500])
-                return text
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                    return text
+            except Exception:
+                return ""
     except Exception as e:
-        print(f"[ERROR] extract_text_from_file failed: {e}")
+        logger.error(f"extract_text_from_file failed for {file_path}: {e}")
         return ""
 
     return ""
@@ -107,16 +118,31 @@ def calculate_semantic_score(jd_text, resume_text):
     if not (jd_text or "").strip() or not (resume_text or "").strip():
         return 0.0
 
+    if not SEMANTIC_SEARCH_ENABLED:
+        # Fallback to Jaccard-like word overlap for "lite" mode
+        jd_words = set(re.findall(r'\w+', jd_text.lower()))
+        res_words = set(re.findall(r'\w+', resume_text.lower()))
+        if not jd_words: return 0.0
+        overlap = jd_words.intersection(res_words)
+        return float(len(overlap) / len(jd_words))
+
     model = _get_model()
-    jd_embedding = model.encode(jd_text)
-    resume_embedding = model.encode(resume_text)
+    if model is None:
+        return 0.0
+        
+    try:
+        jd_embedding = model.encode(jd_text)
+        resume_embedding = model.encode(resume_text)
 
-    similarity = cosine_similarity(
-        [jd_embedding],
-        [resume_embedding]
-    )[0][0]
+        similarity = cosine_similarity(
+            [jd_embedding],
+            [resume_embedding]
+        )[0][0]
 
-    return float(similarity)
+        return float(similarity)
+    except Exception as exc:
+        logger.error(f"Semantic scoring error: {exc}")
+        return 0.0
 
 
 # --------------------------------------------------
@@ -202,10 +228,8 @@ def extract_academic_percentages(text):
         academic_data["intermediate"] = float(inter.group(2))
 
     # ------------------------------------------------
-    # 🔥 Engineering Detection (SUPER ROBUST)
+    # Engineering Detection
     # ------------------------------------------------
-
-    # 1️⃣ Direct percentage near engineering keywords
     eng_percent = re.search(
         r"(engineering|b\.?tech|b\.?e|bachelor).*?(\d{2,3}(?:\.\d+)?)\s*%",
         text
@@ -215,23 +239,16 @@ def extract_academic_percentages(text):
         academic_data["engineering"] = float(eng_percent.group(2))
         return academic_data
 
-    # 2️⃣ CGPA detection anywhere in resume
     cgpa_match = re.search(r"cgpa\s*[:\-]?\s*(\d+(?:\.\d+)?)", text)
-
     if cgpa_match:
         cgpa = float(cgpa_match.group(1))
-
-        # If CGPA out of 10
         if cgpa <= 10:
             academic_data["engineering"] = round((cgpa / 10) * 100, 2)
         else:
             academic_data["engineering"] = cgpa
-
         return academic_data
 
-    # 3️⃣ Generic GPA detection fallback
     gpa_match = re.search(r"(\d+(?:\.\d+)?)\s*(cgpa|gpa)", text)
-
     if gpa_match:
         gpa = float(gpa_match.group(1))
         if gpa <= 10:
@@ -240,6 +257,8 @@ def extract_academic_percentages(text):
             academic_data["engineering"] = gpa
 
     return academic_data
+
+
 # --------------------------------------------------
 # FINAL AI SCORING ENGINE
 # --------------------------------------------------
@@ -250,80 +269,49 @@ def final_score(
     education_requirement=None,
     experience_requirement=0
 ):
-
     jd_text = extract_text_from_file(jd_path)
     resume_text = extract_text_from_file(resume_path)
 
-    # Extract Academic %
     academic_percentages = extract_academic_percentages(resume_text)
-
-    # Semantic
     semantic_score = calculate_semantic_score(jd_text, resume_text)
+    skill_score, matched_skills = calculate_skill_score(skill_scores_dict, resume_text)
 
-    # Skills
-    skill_score, matched_skills = calculate_skill_score(
-        skill_scores_dict,
-        resume_text
-    )
-
-        # Education Check (Improved Matching)
     candidate_education = extract_education(resume_text)
     education_score = 1.0
     education_reason = "Education requirement satisfied."
 
     if education_requirement:
-
         req = education_requirement.lower()
-
-        # Normalize resume education
         resume_edu = (candidate_education or "").lower()
-
         bachelor_keywords = ["bachelor", "b.tech", "btech", "b.e", "be", "bsc", "bca"]
         master_keywords = ["master", "m.tech", "mtech", "m.e", "me", "msc", "mca"]
-
         matched = False
-
         if req in bachelor_keywords:
-            for word in bachelor_keywords:
-                if word in resume_edu:
-                    matched = True
-                    break
-
+            matched = any(word in resume_edu for word in bachelor_keywords)
         elif req in master_keywords:
-            for word in master_keywords:
-                if word in resume_edu:
-                    matched = True
-                    break
-
+            matched = any(word in resume_edu for word in master_keywords)
         else:
-            if req in resume_edu:
-                matched = True
-
+            matched = req in resume_edu
         if not matched:
             education_score = 0.0
             education_reason = f"Required {education_requirement}, found {candidate_education or 'None'}"
 
-    # Experience Check
     candidate_experience = extract_experience(resume_text)
     experience_score = 1.0
     experience_reason = "Experience requirement satisfied."
-
     if experience_requirement:
         if candidate_experience < experience_requirement:
             experience_score = 0.0
             experience_reason = f"Required {experience_requirement} years, found {candidate_experience}"
 
-    # Academic 60% Rule
     percentage_score = 1.0
     percentage_reason = "Academic percentage criteria satisfied."
-
     for level, value in academic_percentages.items():
         if value is not None and value < 60:
             percentage_score = 0.0
             percentage_reason = f"{level} below 60%"
             break
 
-    # Final Score Calculation
     final = (
         semantic_score * 0.30 +
         skill_score * 0.25 +
@@ -333,7 +321,6 @@ def final_score(
     )
 
     final_percentage = round(final * 100, 2)
-
     explanation = {
         "semantic_score": round(semantic_score * 100, 2),
         "skill_score": round(skill_score * 100, 2),
@@ -342,7 +329,8 @@ def final_score(
         "experience_reason": experience_reason,
         "total_experience_detected": candidate_experience,
         "academic_percentages": academic_percentages,
-        "percentage_reason": percentage_reason
+        "percentage_reason": percentage_reason,
+        "analysis_mode": "lite (keyword)" if not SEMANTIC_SEARCH_ENABLED else "pro (semantic)"
     }
 
     return final_percentage, explanation

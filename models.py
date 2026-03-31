@@ -176,6 +176,7 @@ class InterviewSession(Base):
     questions = relationship("InterviewQuestion", back_populates="session", cascade="all, delete-orphan")
     answers = relationship("InterviewAnswer", back_populates="session", cascade="all, delete-orphan")
     proctor_events = relationship("ProctorEvent", back_populates="session", cascade="all, delete-orphan")
+    feedbacks = relationship("InterviewFeedback", back_populates="session", cascade="all, delete-orphan")
 
 
 class InterviewQuestion(Base):
@@ -264,4 +265,4 @@ class InterviewFeedback(Base):
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    session = relationship("InterviewSession")
+    session = relationship("InterviewSession", back_populates="feedbacks")

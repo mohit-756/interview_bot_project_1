@@ -220,6 +220,7 @@ export const interviewApi = {
   transcribe: (formData) => request({ method: "post", url: "/interview/transcribe", data: formData }),
   evaluate: (sessionId) => request({ method: "post", url: `/interview/${sessionId}/evaluate` }),
   sessionSummary: (sessionId) => request({ method: "get", url: `/interview/session/${sessionId}/summary` }),
+  submitFeedback: (sessionId, payload) => request({ method: "post", url: `/interview/${sessionId}/feedback`, data: payload }),
 };
 
 export const proctorApi = {
