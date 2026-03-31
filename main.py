@@ -98,9 +98,9 @@ if not _secret_key:
 app.add_middleware(
     SessionMiddleware,
     secret_key=_secret_key,
+    same_site="none",
+    https_only=True,
     session_cookie="interview_bot_sid",
-    same_site="none" if IS_PROD else "lax",
-    https_only=IS_PROD,
 )
 
 # ── CORS Configuration ───────────────────────────────────────────────────────
