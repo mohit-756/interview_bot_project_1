@@ -18,10 +18,17 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./interview_bot.db"
 
+# SQLAlchemy requires 'postgresql://' but many platforms (Render, Heroku) provide 'postgres://'
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # Engine handles low-level DB connections.
+# For SQLite, check_same_thread=False is needed. For Postgres, it is not.
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    connect_args=connect_args
 )
 
 # ---------------------------
