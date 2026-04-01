@@ -1802,64 +1802,65 @@ def interview_answer(
             candidate = db.query(Candidate).filter(Candidate.id == session.candidate_id).first()
             resume_text = (candidate.resume_text if candidate else "") or ""
 
-        followup_data = generate_followup_question(question.text, answer_text, resume_text)
+            followup_data = generate_followup_question(question.text, answer_text, resume_text)
 
-        if followup_data:
-            # We want this to be the IMMEDIATE next question.
-            # We find the next unanswered question (if any) and "push" it.
-            remaining_qs = [q for q in ordered if q.time_taken_seconds is None and q.id != question.id]
+            if followup_data:
+                # We want this to be the IMMEDIATE next question.
+                # We find the next unanswered question (if any) and "push" it.
+                remaining_qs = [q for q in ordered if q.time_taken_seconds is None and q.id != question.id]
 
-            if remaining_qs:
-                next_q = remaining_qs[0]
-                # 1. Create a "clone" of next_q to be the new last question
-                pushed_q = InterviewQuestion(
-                    session_id=session.id,
-                    text=next_q.text,
-                    difficulty=next_q.difficulty,
-                    topic=next_q.topic,
-                    question_type=next_q.question_type,
-                    intent=next_q.intent,
-                    focus_skill=next_q.focus_skill,
-                    project_name=next_q.project_name,
-                    reference_answer=next_q.reference_answer,
-                    metadata_json=next_q.metadata_json,
-                    allotted_seconds=next_q.allotted_seconds,
-                )
-                db.add(pushed_q)
+                if remaining_qs:
+                    next_q = remaining_qs[0]
+                    # 1. Create a "clone" of next_q to be the new last question
+                    pushed_q = InterviewQuestion(
+                        session_id=session.id,
+                        text=next_q.text,
+                        difficulty=next_q.difficulty,
+                        topic=next_q.topic,
+                        question_type=next_q.question_type,
+                        intent=next_q.intent,
+                        focus_skill=next_q.focus_skill,
+                        project_name=next_q.project_name,
+                        reference_answer=next_q.reference_answer,
+                        metadata_json=next_q.metadata_json,
+                        allotted_seconds=next_q.allotted_seconds,
+                    )
+                    db.add(pushed_q)
 
-                # 2. Update next_q to BE the follow-up
-                next_q.text = followup_data["text"]
-                next_q.question_type = "followup"
-                next_q.intent = followup_data["intent"]
-                next_q.reference_answer = followup_data["reference_answer"]
-                next_q.difficulty = followup_data["difficulty"]
-                next_q.topic = "clarification"
-                next_q.metadata_json = {"is_followup": True, "parent_question_id": question.id}
-                # Follow-ups are usually shorter probes
-                next_q.allotted_seconds = 45 
-            else:
-                # No more questions? Just add it to the end.
-                new_q = InterviewQuestion(
-                    session_id=session.id,
-                    text=followup_data["text"],
-                    difficulty=followup_data["difficulty"],
-                    topic="clarification",
-                    question_type="followup",
-                    intent=followup_data["intent"],
-                    reference_answer=followup_data["reference_answer"],
-                    allotted_seconds=45,
-                    metadata_json={"is_followup": True, "parent_question_id": question.id}
-                )
-                db.add(new_q)
+                    # 2. Update next_q to BE the follow-up
+                    next_q.text = followup_data["text"]
+                    next_q.question_type = "followup"
+                    next_q.intent = followup_data["intent"]
+                    next_q.reference_answer = followup_data["reference_answer"]
+                    next_q.difficulty = followup_data["difficulty"]
+                    next_q.topic = "clarification"
+                    next_q.metadata_json = {"is_followup": True, "parent_question_id": question.id}
+                    # Follow-ups are usually shorter probes
+                    next_q.allotted_seconds = 45 
+                else:
+                    # No more questions? Just add it to the end.
+                    new_q = InterviewQuestion(
+                        session_id=session.id,
+                        text=followup_data["text"],
+                        difficulty=followup_data["difficulty"],
+                        topic="clarification",
+                        question_type="followup",
+                        intent=followup_data["intent"],
+                        reference_answer=followup_data["reference_answer"],
+                        allotted_seconds=45,
+                        metadata_json={"is_followup": True, "parent_question_id": question.id}
+                    )
+                    db.add(new_q)
 
-            session.max_questions += 1
-            db.commit()
-            # Refresh ordered list
-            ordered = _ordered_questions(db, session.id)
+                session.max_questions += 1
+                db.commit()
+                # Refresh ordered list
+                ordered = _ordered_questions(db, session.id)
+        except Exception as exc:
+            logger.warning("adaptive_probing_failed error=%s", exc)
 
     interview_completed = False
     next_question = None
-    max_questions = int(session.max_questions or 8)
 
     if (session.remaining_time_seconds or 0) <= 0 or answered_count >= max_questions:
 
