@@ -13,9 +13,7 @@ from ai_engine.phase1.scoring import compute_answer_scorecard
 from database import get_db, SessionLocal
 from models import InterviewAnswer, InterviewQuestion, InterviewSession
 from routes.dependencies import SessionUser, require_role
-from services.ai_detect import detect_ai_generated
 from services.llm.client import _clean_json, _get_client, _llm_model, _llm_provider
-from services.sentiment import analyze_sentiment
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["interview-evaluation"])
@@ -266,10 +264,6 @@ def run_evaluation_task(session_id: int) -> None:
             # Use LLM result if available, otherwise fall back to local scoring.
             evaluation = llm_results.get(question.id) or _fallback_evaluation(question, answer_text)
 
-            # Enrich with AI-generated text detection and NLP sentiment analysis.
-            evaluation["ai_generated"] = detect_ai_generated(answer_text)
-            evaluation["sentiment"] = analyze_sentiment(answer_text)
-
             _upsert_llm_fields(db, session_id, question, evaluation)
             total_score += float(evaluation["score"])
             scored += 1
@@ -343,10 +337,6 @@ def evaluate_interview(
 
         # Use LLM result if available, otherwise fall back to local scoring.
         evaluation = llm_results.get(question.id) or _fallback_evaluation(question, answer_text)
-
-        # Enrich with AI-generated text detection and NLP sentiment analysis.
-        evaluation["ai_generated"] = detect_ai_generated(answer_text)
-        evaluation["sentiment"] = analyze_sentiment(answer_text)
 
         _upsert_llm_fields(db, session_id, question, evaluation)
         total_score += float(evaluation["score"])
