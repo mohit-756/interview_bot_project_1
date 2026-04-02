@@ -10,6 +10,7 @@
 - 🤖 LLM-powered answer scoring (Gemini) with unbreakable emergency local fallback rubric
 - ✅ Dedicated HR decision columns (no more JSON blob conflicts)
 - 🛡️ Extremely robust LLM fallbacks ensuring demo/uptime functionality regardless of API status
+- 🗄️ Resume text persisted in PostgreSQL — survives server restarts on ephemeral platforms (Render, Heroku)
 
 ---
 
@@ -29,6 +30,9 @@
 - **ORM + DB**: `models.py`, `database.py`
 - **Default DB**: `sqlite:///./app.db` (Configured via DATABASE_URL)
 - **File Storage**: `uploads/` (resumes, proctoring snapshots, exports)
+  - **⚠️ Ephemeral on Render/Heroku**: Files in `uploads/` are wiped on every server restart
+  - **Resume text**: Extracted and stored in `candidates.resume_text` (PostgreSQL) — survives restarts
+  - **Proctoring images**: Stored as `uploads/proctoring/{session_id}/{timestamp}.jpg` — lost on restart (see Known Issues)
 
 ### Frontend
 
@@ -77,6 +81,8 @@
 - ✅ **Smart Education Matching**: Bachelor/Master/PhD rank-based validation
 - ✅ **Weighted Skill Matching**: Skills ranked by JD importance
 - ✅ Screening bands: `strong_shortlist` (≥80), `review_shortlist` (65-79), `reject` (<65)
+- ✅ **Resume Text Persistence**: Extracted text stored in `candidates.resume_text` (PostgreSQL). Interview access reads from DB — never re-reads from ephemeral filesystem
+- ✅ **Upload Validation**: Returns HTTP 400 if resume text extraction fails — no silent empty uploads
 
 #### Interview Workflow (Phase 3)
 - ✅ **Indestructible AI Generation**: The LLM question generator and LLM answer evaluator have extreme, unbreakable fallbacks ensuring your interview flow cannot crash even if the LLM provider times out or responds with garbage JSON.
@@ -258,3 +264,9 @@ Frontend URL: `http://localhost:5173`
 - **Startup Migrations**: `main.py` runs `ensure_schema()` to backfill columns on existing SQLite DBs (non-breaking).
 - **Proctoring Integrity**: Webcam snapshots are only saved for suspicious events (no-face, high-motion, face-mismatch) to save disk space. Max 50 frames per session.
 - **Fail-Safes Built For Demos**: All brittle endpoints (Transcription, LLM Question Generation, Post-Interview Scoring, OpenCV Frame Analysis) are heavily guarded with robust try-catch blocks and hardcoded fallbacks to ensure the interview can always progress seamlessly.
+- **Resume Persistence**: `candidate.resume_text` is the source of truth for interview question generation. The system reads from the database, not the filesystem, ensuring compatibility with ephemeral hosting (Render, Heroku).
+- **Proctoring Image Backfill**: If `candidate.resume_text` is empty during interview access, the system attempts a one-time file read and backfills the DB. This handles legacy records that predate the fix.
+
+## Known Issues
+
+- **Proctoring images lost on restart**: Images in `uploads/proctoring/` are wiped on Render server restarts. The `proctor_events.image_path` column still holds the paths, but the `.jpg` files are gone. Fix: migrate to cloud storage (S3, Cloudflare R2, or Render Persistent Disk).
