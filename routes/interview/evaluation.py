@@ -147,8 +147,8 @@ Answers to audit:
             max_tokens=2000,
         )
         raw = _clean_json(response.choices[0].message.content or "")
-        import re
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        # Find the outermost JSON object (handles nested braces correctly)
+        match = re.search(r"\{[\s\S]*\}", raw)
         if match:
             raw = match.group(0)
         data = json.loads(raw)
