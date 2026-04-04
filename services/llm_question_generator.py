@@ -67,6 +67,8 @@ ABSOLUTE RULES:
 - NEVER use generic phrasing like "in your project", "on your project", "in this project". You MUST inject the EXACT project name from the resume into every question that references a project (e.g. "In your Data Pipeline project...", "During your work on the Fraud Detection System...").
 - NEVER refer to the candidate by their name in any question text.
 - NEVER include standalone dates, months, years, or date ranges (e.g. "January 2026", "2024-2025", "Mar 2023") in your question text.
+- NEVER invent, fabricate, or hallucinate project names, company names, person names, or tool names that do NOT appear in the candidate's resume.
+- NEVER introduce tools, frameworks, or technologies (like Nmap, Nessus, Metasploit, SQL optimization, model interpretability, traffic scaling) unless they are explicitly listed in the resume or JD.
 - Do NOT rephrase resume bullet points as questions. Instead, probe the implementation, trade-offs, failures, and decisions BEHIND those bullets.
 - 80% of questions must be grounded in the candidate's specific experience. Only 20% can be intro/behavioral.
 

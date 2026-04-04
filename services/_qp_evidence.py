@@ -159,31 +159,9 @@ def _projectish_phrase(text: str) -> str:
         return ""
     if NAMEY_HEADER_PATTERN.match(cleaned) or re.match(r"^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4}\s+(?:architect|engineer|developer|manager|head)$", cleaned):
         return ""
-    patterns = [
-        (("veriton",), "Veriton data platform"),
-        (("ai", "interview"), "AI interview system"),
-        (("resume", "screen"), "resume screening system"),
-        (("candidate", "screen"), "candidate screening platform"),
-        (("react", "vite"), "AI interview system frontend/backend stack"),
-        (("sqlalchemy", "sqlite"), "AI interview system frontend/backend stack"),
-        (("react", "sqlalchemy"), "AI interview system frontend/backend stack"),
-        (("databricks", "lakehouse"), "Databricks Lakehouse platform"),
-        (("lakehouse",), "Databricks Lakehouse platform"),
-        (("databricks",), "Databricks data platform"),
-        (("design system",), "design system"),
-        (("analytics", "dashboard"), "analytics dashboard"),
-        (("dashboard",), "analytics dashboard"),
-        (("frontend", "ui"), "frontend UI system"),
-        (("backend", "api"), "backend API system"),
-        (("api", "platform"), "API platform"),
-        (("data", "platform"), "data platform"),
-        (("pipeline",), "data pipeline"),
-        (("screening", "system"), "resume screening system"),
-    ]
-    for keywords, label in patterns:
-        if all(keyword in lowered for keyword in keywords):
-            return label
 
+    # Only extract project names from actual noun phrases in the resume text.
+    # NEVER invent project names from keyword combinations.
     head = re.split(r"[;:!?]", cleaned, maxsplit=1)[0]
     head = re.sub(r"\b(?:using|with|built|developed|implemented|designed|delivered|responsible for|worked on|at|for)\b.*", "", head, flags=re.IGNORECASE)
     head = re.sub(r"\s+", " ", head).strip(" -")

@@ -908,6 +908,31 @@ def _ensure_question_bank(
 
 ) -> list[dict[str, Any]]:
 
+    # If any session for this result is already in_progress or completed,
+    # DO NOT regenerate — serve the existing bank to avoid mid-interview changes.
+    active_session = (
+        db.query(InterviewSession)
+        .filter(
+            InterviewSession.result_id == result.id,
+            InterviewSession.status.in_(["in_progress", "completed"]),
+        )
+        .first()
+    )
+    if active_session:
+        questions = normalize_result_questions(result.interview_questions)
+        if questions:
+            _log_question_bank_event(
+                "locked_existing",
+                result_id=result.id,
+                candidate_id=candidate.id,
+                session_id=active_session.id,
+                session_status=active_session.status,
+                question_count=len(questions),
+                source="result.interview_questions",
+                generation_mode="locked_by_active_session",
+            )
+            return questions
+
     questions = normalize_result_questions(result.interview_questions)
 
 
@@ -1034,11 +1059,13 @@ def _ensure_question_bank(
 
     logger.info(
 
-        "resume_text_loaded candidate_id=%s source=db text_len=%d",
+        "resume_text_loaded candidate_id=%s source=db text_len=%d resume_text_preview=%s",
 
         candidate.id,
 
         len(resume_text),
+
+        resume_text[:200],
 
     )
 
@@ -1092,6 +1119,24 @@ def _ensure_question_bank(
     if not questions:
 
         raise HTTPException(status_code=400, detail="Interview questions could not be generated for this result yet.")
+
+    logger.info(
+
+        "question_bank_generated result_id=%s candidate_id=%s mode=%s fallback=%s count=%s questions_preview=%s",
+
+        result.id,
+
+        candidate.id,
+
+        generation_mode,
+
+        fallback_used,
+
+        len(questions),
+
+        [q.get("text", "")[:80] for q in questions[:3]],
+
+    )
 
 
 
