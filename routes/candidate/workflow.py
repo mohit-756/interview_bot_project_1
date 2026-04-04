@@ -208,7 +208,12 @@ def upload_resume(
     safe_filename = Path(resume.filename or "resume").name
     if not safe_filename:
         raise HTTPException(status_code=400, detail="Resume filename is invalid")
-    
+
+    allowed_extensions = {".pdf", ".docx", ".doc", ".txt", ".rtf"}
+    file_ext = Path(safe_filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type '{file_ext}'. Allowed: {', '.join(sorted(allowed_extensions))}")
+
     resume.file.seek(0, 2)
     file_size = resume.file.tell()
     resume.file.seek(0)

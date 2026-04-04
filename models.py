@@ -49,6 +49,7 @@ class Candidate(Base):
     results = relationship("Result", back_populates="candidate")
     interviews = relationship("InterviewSession", back_populates="candidate")
     selected_jd = relationship("JobDescription", foreign_keys=[selected_jd_id])
+    avatar_path = Column(String(300), nullable=True)
 
 
 class HR(Base):
@@ -58,6 +59,7 @@ class HR(Base):
     company_name = Column(String(150))
     email = Column(String(120), unique=True, index=True)
     password = Column(String(200))
+    avatar_path = Column(String(300), nullable=True)
 
     jobs = relationship("JobDescription", back_populates="company")
 
@@ -254,3 +256,26 @@ class InterviewFeedback(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("InterviewSession", back_populates="feedbacks")
+
+
+class PasswordResetToken(Base):
+    """Secure one-time password reset tokens."""
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(120), nullable=False, index=True)
+    token = Column(String(128), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserPreferences(Base):
+    """Persisted notification and appearance preferences per user."""
+    __tablename__ = "user_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    role = Column(String(20), nullable=False)
+    preferences_json = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)

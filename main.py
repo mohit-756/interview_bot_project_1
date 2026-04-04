@@ -42,6 +42,54 @@ app = FastAPI(title="Interview Bot API", version="1.0.0")
 Base.metadata.create_all(bind=engine)
 
 
+def _run_migrations():
+    """Add new columns to existing tables that SQLAlchemy create_all won't touch."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        if "candidates" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("candidates")]
+            if "avatar_path" not in cols:
+                conn.execute(text("ALTER TABLE candidates ADD COLUMN avatar_path VARCHAR(300)"))
+                logger.info("Added avatar_path to candidates")
+        if "hr" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("hr")]
+            if "avatar_path" not in cols:
+                conn.execute(text("ALTER TABLE hr ADD COLUMN avatar_path VARCHAR(300)"))
+                logger.info("Added avatar_path to hr")
+        if "password_reset_tokens" not in inspector.get_table_names():
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(120) NOT NULL,
+                    token VARCHAR(128) UNIQUE NOT NULL,
+                    expires_at TIMESTAMP NOT NULL,
+                    used BOOLEAN DEFAULT FALSE NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW() NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_id ON password_reset_tokens (id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_email ON password_reset_tokens (email)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_token ON password_reset_tokens (token)"))
+            logger.info("Created password_reset_tokens table")
+        if "user_preferences" not in inspector.get_table_names():
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    role VARCHAR(20) NOT NULL,
+                    preferences_json JSON,
+                    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_preferences_id ON user_preferences (id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_preferences_user_id ON user_preferences (user_id)"))
+            logger.info("Created user_preferences table")
+
+
+_run_migrations()
+
+
 # ── LLM provider startup checks ─────────────────────────────────────────────
 
 # Standardized LLM provider and model checks

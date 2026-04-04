@@ -24,6 +24,8 @@ import Interview from "./pages/Interview";
 import Completed from "./pages/Completed";
 import FinalResultPage from "./pages/FinalResultPage";
 import SettingsPage from "./pages/SettingsPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import "./App.css";
 
 function HomeRedirect() {
@@ -52,6 +54,8 @@ export default function App() {
       {/* Public routes */}
       <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
       <Route path="/signup" element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>} />
+      <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPasswordPage /></PublicOnlyRoute>} />
+      <Route path="/reset-password/:token" element={<PublicOnlyRoute><ResetPasswordPage /></PublicOnlyRoute>} />
 
       {/* ── INTERVIEW ROUTES — NO LOGIN REQUIRED ─────────────────────────────
           These are accessed directly from the email link.
@@ -77,7 +81,6 @@ export default function App() {
           <Route path="/hr/analytics" element={<HRAnalyticsPage />} />
           <Route path="/hr/backup" element={<HRBackupPage />} />
           <Route path="/hr/proctoring/:sessionId" element={<HRProctoringPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>
 
@@ -87,6 +90,12 @@ export default function App() {
           <Route path="/candidate" element={<CandidateDashboardPage />} />
           <Route path="/candidate/practice" element={<PracticeInterviewPage />} />
           <Route path="/interview/result" element={<FinalResultPage />} />
+        </Route>
+      </Route>
+
+      {/* Shared settings — accessible by any logged-in user */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<DashboardLayout />}>
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

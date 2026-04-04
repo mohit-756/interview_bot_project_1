@@ -142,6 +142,17 @@ export const authApi = {
   signup: (payload) => request({ method: "post", url: "/auth/signup", data: payload }),
   logout: () => request({ method: "post", url: "/auth/logout" }),
   me: () => request({ method: "get", url: "/auth/me" }),
+  updateProfile: (name) => request({ method: "put", url: "/auth/profile", data: { name } }),
+  changePassword: (currentPassword, newPassword) => request({ method: "post", url: "/auth/change-password", data: { current_password: currentPassword, new_password: newPassword } }),
+  forgotPassword: (email) => request({ method: "post", url: "/auth/forgot-password", data: { email } }),
+  resetPassword: (token, newPassword) => request({ method: "post", url: "/auth/reset-password", data: { token, new_password: newPassword } }),
+  getPreferences: () => request({ method: "get", url: "/auth/preferences" }),
+  savePreferences: (preferences) => request({ method: "post", url: "/auth/preferences", data: { preferences } }),
+  uploadAvatar: (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiClient.post("/auth/avatar", formData, { withCredentials: true }).then((r) => r.data);
+  },
 };
 
 // ── Candidate ────────────────────────────────────────────────────────────────

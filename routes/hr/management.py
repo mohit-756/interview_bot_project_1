@@ -18,6 +18,7 @@ from services.llm.client import extract_skills as llm_extract_skills
 from models import Candidate, InterviewSession, JobDescription, Result, ApplicationStageHistory
 from routes.common import (
     UPLOAD_DIR,
+    _latest_interview_session,
     ensure_candidate_profile,
     evaluate_resume_for_job,
     safe_delete_upload,
@@ -40,16 +41,8 @@ jd_router = APIRouter(prefix="/hr/jds", tags=["hr-jds"])
 PAGE_SIZE = 10
 
 
-# 1) What this does: finds the most recent interview session for a result.
-# 2) Why needed: HR status and detail pages should use the latest interview state.
-# 3) How it works: picks the session with the newest timestamp and highest id fallback.
-def _latest_session(result: Result | None) -> InterviewSession | None:
-    if not result or not result.sessions:
-        return None
-    return max(
-        result.sessions,
-        key=lambda item: (item.started_at or datetime.min, item.id or 0),
-    )
+# Alias to shared helper — avoids duplicating _latest_interview_session logic.
+_latest_session = _latest_interview_session
 
 
 # 1) What this does: converts result/session data into a stable status key.
@@ -244,14 +237,6 @@ def _serialize_jd(jd: JobDescription) -> dict[str, object]:
         "is_active": bool(jd.is_active if jd.is_active is not None else True),
         "created_at": jd.created_at,
     }
-
-
-def _sync_legacy_job_from_config(
-    db: Session,
-    jd_config: JobDescriptionConfig,
-    hr_id: int,
-) -> JobDescription:
-    return sync_legacy_job_from_config(db, jd_config, hr_id)
 
 
 def _get_hr_owned_jd_or_404(db: Session, jd_id: int, hr_id: int) -> JobDescription:
@@ -1084,6 +1069,11 @@ def upload_jd(
     current_user: SessionUser = Depends(require_role("hr")),
 ) -> dict[str, object]:
     _ = gender_requirement
+    safe_filename = Path(jd_file.filename or "jd").name
+    allowed_extensions = {".pdf", ".docx", ".doc", ".txt", ".rtf"}
+    file_ext = Path(safe_filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type '{file_ext}'. Allowed: {', '.join(sorted(allowed_extensions))}")
     try:
         years = int(experience_requirement) if experience_requirement else 0
     except ValueError:
@@ -1181,11 +1171,6 @@ def confirm_jd(
     db.commit()
     db.refresh(job)
 
-    jd_config = sync_config_from_legacy_job(db, job)
-    jd_config.total_questions = int(temp_jd.get("question_count", 8))
-    jd_config.project_question_ratio = float(temp_jd.get("project_question_ratio", 0.8))
-    db.commit()
-
     candidates = db.query(Candidate).all()
     for candidate in candidates:
         if ensure_candidate_profile(candidate, db):
@@ -1252,9 +1237,6 @@ def update_skill_weights(
         target_job.cutoff_score = float(payload.cutoff_score)
     if payload.question_count is not None:
         target_job.question_count = int(payload.question_count)
-    db.commit()
-
-    sync_config_from_legacy_job(db, target_job)
     db.commit()
 
     candidates = db.query(Candidate).filter(Candidate.resume_path.isnot(None)).all()

@@ -1,15 +1,21 @@
 """Health and authentication endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from collections import defaultdict, deque
 import time
+import secrets
+import os
+import shutil
+from datetime import datetime, timedelta
+import smtplib
+from email.mime.text import MIMEText
 
 from auth import hash_password, password_needs_upgrade, verify_password
 from database import get_db
-from models import Candidate, HR
+from models import Candidate, HR, PasswordResetToken, UserPreferences
 from routes.common import ensure_candidate_profile, get_candidate_or_404, get_hr_or_404
 from routes.dependencies import SessionUser, get_current_user
 from routes.schemas import LoginBody, SignupBody
@@ -308,3 +314,145 @@ def me(
         "name": hr_user.company_name,
         "email": hr_user.email,
     }
+
+
+# ── POST /api/auth/forgot-password ──────────────────────────────────────────
+class ForgotPasswordBody(_BaseModel):
+    email: str
+
+@router.post("/auth/forgot-password")
+def forgot_password(payload: ForgotPasswordBody, db: Session = Depends(get_db)) -> dict:
+    user = db.query(Candidate).filter(Candidate.email == payload.email).first()
+    if not user:
+        user = db.query(HR).filter(HR.email == payload.email).first()
+    if not user:
+        return {"ok": True, "message": "If an account exists with that email, a reset link has been sent."}
+
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.email == payload.email,
+        PasswordResetToken.used == False
+    ).update({"used": True})
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=1)
+    reset_token = PasswordResetToken(email=payload.email, token=token, expires_at=expires_at)
+    db.add(reset_token)
+    db.commit()
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    reset_link = f"{frontend_url}/reset-password/{token}"
+
+    email_addr = os.getenv("EMAIL_ADDRESS", "")
+    email_pass = os.getenv("EMAIL_PASSWORD", "")
+    if email_addr and email_pass:
+        try:
+            msg = MIMEText(f"Click this link to reset your password:\n{reset_link}\n\nThis link expires in 1 hour.")
+            msg["Subject"] = "Password Reset — InterviewBot"
+            msg["From"] = email_addr
+            msg["To"] = payload.email
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(email_addr, email_pass)
+                server.sendmail(email_addr, payload.email, msg.as_string())
+        except Exception:
+            pass
+
+    return {"ok": True, "message": "If an account exists with that email, a reset link has been sent."}
+
+
+# ── POST /api/auth/reset-password ───────────────────────────────────────────
+class ResetPasswordBody(_BaseModel):
+    token: str
+    new_password: str
+
+@router.post("/auth/reset-password")
+def reset_password(payload: ResetPasswordBody, db: Session = Depends(get_db)) -> dict:
+    reset_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == payload.token,
+        PasswordResetToken.used == False
+    ).first()
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    if reset_token.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+
+    user = db.query(Candidate).filter(Candidate.email == reset_token.email).first()
+    if not user:
+        user = db.query(HR).filter(HR.email == reset_token.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    user.password = hash_password(payload.new_password)
+    reset_token.used = True
+    db.commit()
+    return {"ok": True, "message": "Password reset successfully"}
+
+
+# ── GET/POST /api/auth/preferences ──────────────────────────────────────────
+class PreferencesBody(_BaseModel):
+    preferences: dict
+
+@router.get("/auth/preferences")
+def get_preferences(current_user: SessionUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    pref = db.query(UserPreferences).filter(
+        UserPreferences.user_id == current_user.user_id,
+        UserPreferences.role == current_user.role
+    ).first()
+    if not pref:
+        return {"ok": True, "preferences": {}}
+    return {"ok": True, "preferences": pref.preferences_json or {}}
+
+
+@router.post("/auth/preferences")
+def save_preferences(payload: PreferencesBody, current_user: SessionUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    pref = db.query(UserPreferences).filter(
+        UserPreferences.user_id == current_user.user_id,
+        UserPreferences.role == current_user.role
+    ).first()
+    if pref:
+        pref.preferences_json = payload.preferences
+        pref.updated_at = datetime.utcnow()
+    else:
+        pref = UserPreferences(
+            user_id=current_user.user_id,
+            role=current_user.role,
+            preferences_json=payload.preferences
+        )
+        db.add(pref)
+    db.commit()
+    return {"ok": True, "message": "Preferences saved"}
+
+
+# ── POST /api/auth/avatar ───────────────────────────────────────────────────
+@router.post("/auth/avatar")
+def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: SessionUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
+    if ext not in {"jpg", "jpeg", "png", "gif", "webp"}:
+        raise HTTPException(status_code=400, detail="Invalid image format")
+
+    avatar_dir = os.path.join("uploads", "avatars")
+    os.makedirs(avatar_dir, exist_ok=True)
+    filename = f"{current_user.role}_{current_user.user_id}.{ext}"
+    filepath = os.path.join(avatar_dir, filename)
+
+    with open(filepath, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    avatar_path = f"/uploads/avatars/{filename}"
+    if current_user.role == "candidate":
+        user = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
+    else:
+        user = db.query(HR).filter(HR.id == current_user.user_id).first()
+
+    if user:
+        user.avatar_path = avatar_path
+        db.commit()
+
+    return {"ok": True, "avatar_url": avatar_path}

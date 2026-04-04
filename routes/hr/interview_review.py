@@ -675,53 +675,13 @@ def update_custom_questions(
 
     job.custom_questions = [q.strip() for q in payload.questions if q.strip()]
     db.commit()
-    return {"ok": True, "custom_questions": job.custom_questions}
-
-# ── Feature: Send Performance Feedback Email ──────────────────────────────────
-@router.post("/interviews/{interview_id}/send-feedback")
-def send_candidate_feedback(
-    interview_id: int,
-    background_tasks: BackgroundTasks,
-    current_user: SessionUser = Depends(require_role("hr")),
-    db: Session = Depends(get_db),
-):
-    """Send AI-generated performance feedback to the candidate via email."""
-    session = (
-        db.query(InterviewSession)
-        .join(Result, InterviewSession.result_id == Result.id)
-        .join(JobDescription, Result.job_id == JobDescription.id)
-        .filter(
-            InterviewSession.id == interview_id,
-            JobDescription.company_id == current_user.user_id,
-        )
-        .first()
-    )
-    if not session:
-        raise HTTPException(status_code=404, detail="Interview not found")
-
-    candidate = session.candidate
-    result = session.result
-    job = result.job if result else None
-    job_title = (job.jd_title if job and job.jd_title else "Software Engineer")
-
-    # Pull summary data from result explanation
-    explanation = result.explanation or {} if result else {}
-    strengths = list(explanation.get("strengths_summary") or [])[:5]
-    weaknesses = list(explanation.get("weaknesses_summary") or [])[:5]
-    overall_score = float(explanation.get("overall_interview_score") or result.hr_final_score or 0)
-
-    from utils.email_service import send_performance_feedback_email
-    background_tasks.add_task(
-        send_performance_feedback_email,
-        candidate.email, candidate.name, job_title, strengths, weaknesses, overall_score
-    )
-
-    return {"ok": True, "message": f"Feedback email is being sent to {candidate.email}"}
-
-
-# ── Feature: HR Custom Questions PATCH ───────────────────────────────────────
-# -- Feature: PDF Interview Report Export --
-@router.get("/interviews/{session_id}/report")
+    return {"ok": True, "custom_questions": job.custom_questions}
+
+
+
+# -- Feature: PDF Interview Report Export --
+
+@router.get("/interviews/{session_id}/report")
 def download_interview_report(
     session_id: int,
     current_user: SessionUser = Depends(require_role("hr")),

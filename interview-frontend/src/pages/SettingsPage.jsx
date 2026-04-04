@@ -5,6 +5,7 @@ import {
   ToggleLeft, AlertCircle, Loader2, User, Mail
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import { authApi } from "../services/api";
 import { cn } from "../utils/utils";
 
 // ── Theme hook ─────────────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ export default function SettingsPage() {
     if (user) { setName(user.name || ""); setEmail(user.email || ""); }
   }, [user]);
 
-  // Load saved preferences from localStorage
+  // Load saved preferences from localStorage then API
   useEffect(() => {
     try {
       const saved = localStorage.getItem("interviewbot_notifs");
@@ -150,6 +151,16 @@ export default function SettingsPage() {
     } catch {
       // Ignore malformed local preference data.
     }
+    authApi.getPreferences().then((res) => {
+      if (res?.preferences && Object.keys(res.preferences).length > 0) {
+        const p = res.preferences;
+        if (p.notifs) setNotifs(p.notifs);
+        if (p.fontSize) { setFontSize(p.fontSize); handleFontSize(p.fontSize); }
+        if (typeof p.compactMode === "boolean") setCompactMode(p.compactMode);
+        if (p.theme) toggleTheme(p.theme);
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Profile save — calls PUT /api/auth/profile (we add a simple endpoint)
@@ -158,20 +169,11 @@ export default function SettingsPage() {
     if (!name.trim()) { showToast("Name cannot be empty", "error"); return; }
     setSavingProfile(true);
     try {
-      // Try to update via API; fall back gracefully if endpoint isn't wired yet
-      await fetch("/api/auth/profile", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
-      }).then(async (r) => {
-        if (!r.ok) throw new Error(await r.text());
-      });
+      await authApi.updateProfile(name.trim());
       await refreshSession();
       showToast("Profile updated successfully!");
     } catch {
-      // If endpoint doesn't exist yet, just show success (name updated locally)
-      showToast("Profile saved locally. Backend endpoint needed for persistence.", "error");
+      showToast("Failed to update profile", "error");
     } finally {
       setSavingProfile(false);
     }
@@ -185,16 +187,7 @@ export default function SettingsPage() {
     if (newPw !== confirmPw) { showToast("New passwords do not match", "error"); return; }
     setSavingPw(true);
     try {
-      const r = await fetch("/api/auth/change-password", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ current_password: currentPw, new_password: newPw }),
-      });
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
-        throw new Error(data.detail || "Password change failed");
-      }
+      await authApi.changePassword(currentPw, newPw);
       setCurrentPw(""); setNewPw(""); setConfirmPw("");
       showToast("Password changed successfully!");
     } catch (err) {
@@ -209,6 +202,7 @@ export default function SettingsPage() {
     const next = { ...notifs, [key]: value };
     setNotifs(next);
     localStorage.setItem("interviewbot_notifs", JSON.stringify(next));
+    authApi.savePreferences({ notifs: next, fontSize, compactMode, theme }).catch(() => {});
     showToast("Notification preference saved");
   }
 
@@ -218,11 +212,13 @@ export default function SettingsPage() {
     localStorage.setItem("interviewbot_fontsize", size);
     const root = document.documentElement;
     root.style.fontSize = size === "small" ? "14px" : size === "large" ? "17px" : "16px";
+    authApi.savePreferences({ notifs, fontSize: size, compactMode, theme }).catch(() => {});
     showToast("Font size updated");
   }
   function handleCompact(val) {
     setCompactMode(val);
     localStorage.setItem("interviewbot_compact", String(val));
+    authApi.savePreferences({ notifs, fontSize, compactMode: val, theme }).catch(() => {});
     showToast("Layout preference saved");
   }
 
@@ -261,7 +257,17 @@ export default function SettingsPage() {
               >
                 <Camera size={13} />
               </button>
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={() => showToast("Avatar upload coming soon", "error")} />
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    await authApi.uploadAvatar(file);
+                    showToast("Avatar updated!");
+                    await refreshSession();
+                  } catch {
+                    showToast("Failed to upload avatar", "error");
+                  }
+                }} />
             </div>
             <p className="font-bold text-slate-900 dark:text-white text-sm truncate">{user?.name || "User"}</p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
@@ -439,9 +445,6 @@ export default function SettingsPage() {
 
               <Section title="In-App Alerts" sub="Real-time notifications inside the platform" icon={Bell}>
                 <ToggleSwitch checked={notifs.browserAlerts} onChange={(v) => handleNotifChange("browserAlerts", v)} label="Browser Notifications" sub="Push alerts when tab is in the background" />
-                <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-800/50">
-                  <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Preferences saved locally. To persist across devices, a backend profile API endpoint needs to be wired to <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded text-xs">POST /api/auth/preferences</code>.</p>
-                </div>
               </Section>
             </div>
           )}
