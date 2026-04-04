@@ -533,7 +533,7 @@ export default function Interview() {
       }
       // silent fail for other errors
     }
-  }, [sessionId, previewReady]);
+  }, [sessionId, previewReady, loadSession]);
 
   useEffect(() => {
     if (!sessionId || !previewReady || baselineCapturedRef.current) return;

@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import StepChecklist from "../components/StepChecklist";
 import { candidateApi } from "../services/api";
-import { cn } from "../utils/utils";
 
 function routeFromInterviewLink(interviewLink) {
   if (!interviewLink) return "";
