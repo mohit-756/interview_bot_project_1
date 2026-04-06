@@ -21,11 +21,15 @@ def status_key(result: Result | None, latest_session_row) -> str:
     if not result:
         return "applied"
     stage = normalize_stage(result.stage)
+    # If result already has interview_completed stage, use it
+    if stage == "interview_completed":
+        return "interview_completed"
     if latest_session_row:
         session_status = (latest_session_row.status or "").strip().lower()
         if session_status in {"selected", "rejected"}:
             return session_status
-        if latest_session_row.ended_at or session_status == "completed":
+        # Check for any completion-like status OR if ended_at is set
+        if latest_session_row.ended_at or session_status in {"completed", "done", "finished", "completed_successful", "completed_fail"}:
             return "interview_completed"
         if result.interview_date:
             return "interview_scheduled"

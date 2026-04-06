@@ -1,9 +1,3 @@
-/**
- * HRProctoringPage.jsx
- * Updated to use the new ProctoringTimeline component which handles
- * all event types: face, tab_switch, emotion, voice_confidence, motion, warnings.
- */
-
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Video } from "lucide-react";
 import { Link, useParams } from "react-router-dom";

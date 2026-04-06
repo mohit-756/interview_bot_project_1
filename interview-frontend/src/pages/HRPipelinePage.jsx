@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { DndContext, DragOverlay, PointerSensor, closestCorners, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { Eye, RefreshCw, ThumbsDown, ThumbsUp } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
 import ScoreBadge from "../components/ScoreBadge";
@@ -12,12 +11,12 @@ function getCandidateJdId(candidate) {
   return jdId == null ? "" : String(jdId);
 }
 
-function CandidateCard({ candidate, isDragging = false, listeners = {}, attributes = {}, setNodeRef, onQuickAction, quickActionLoadingId }) {
+function CandidateCard({ candidate, onQuickAction, quickActionLoadingId }) {
   const currentStage = normalizeStageKey(candidate?.interviewStatus?.key);
   const isUpdating = quickActionLoadingId === candidate?.result_id;
 
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={`pipeline-card ${isDragging ? "pipeline-card-dragging" : ""}`}>
+    <div className="pipeline-card">
       <div className="pipeline-card-header">
         <div>
           <h4>{candidate?.name || "Unnamed candidate"}</h4>
@@ -48,43 +47,13 @@ function CandidateCard({ candidate, isDragging = false, listeners = {}, attribut
   );
 }
 
-function DraggableCandidateCard({ candidate, onQuickAction, quickActionLoadingId }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `candidate-${candidate.result_id}`,
-    data: { candidate },
-  });
-
-  return <CandidateCard candidate={candidate} setNodeRef={setNodeRef} listeners={listeners} attributes={attributes} isDragging={isDragging} onQuickAction={onQuickAction} quickActionLoadingId={quickActionLoadingId} />;
-}
-
-function PipelineColumn({ stage, candidates, onQuickAction, quickActionLoadingId }) {
-  const { setNodeRef, isOver } = useDroppable({ id: stage.key, data: { stageKey: stage.key } });
-
-  return (
-    <section ref={setNodeRef} className={`pipeline-column ${isOver ? "pipeline-column-over" : ""}`}>
-      <div className="pipeline-column-header">
-        <div>
-          <h3>{stage.label} <span className="pipeline-column-inline-count">({candidates.length})</span></h3>
-        </div>
-        <span className="pipeline-column-count">{candidates.length}</span>
-      </div>
-      <div className="pipeline-column-body">
-        {candidates.length ? candidates.map((candidate) => <DraggableCandidateCard key={candidate.result_id} candidate={candidate} onQuickAction={onQuickAction} quickActionLoadingId={quickActionLoadingId} />) : <p className="muted">No candidates in this stage</p>}
-      </div>
-    </section>
-  );
-}
-
 export default function HRPipelinePage() {
   const [candidates, setCandidates] = useState([]);
   const [availableJds, setAvailableJds] = useState([]);
   const [selectedJdId, setSelectedJdId] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [activeCandidate, setActiveCandidate] = useState(null);
   const [updatingResultId, setUpdatingResultId] = useState(null);
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   async function loadCandidates() {
     setLoading(true);
@@ -173,14 +142,6 @@ export default function HRPipelinePage() {
     }
   }
 
-  async function handleDragEnd(event) {
-    const droppedStage = normalizeStageKey(event?.over?.id);
-    const draggedCandidate = event?.active?.data?.current?.candidate;
-    setActiveCandidate(null);
-    if (!draggedCandidate?.result_id || !event?.over?.id) return;
-    await persistStageChange(draggedCandidate, droppedStage, "Updated from HR pipeline drag and drop");
-  }
-
   async function handleQuickAction(candidate, nextStage) {
     await persistStageChange(candidate, nextStage, "Updated from HR pipeline quick action");
   }
@@ -217,25 +178,27 @@ export default function HRPipelinePage() {
           <p className="muted">{selectedJdId === "all" ? "Candidates will appear here once applications are available." : "Try another JD or switch back to All JDs."}</p>
         </section>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={(event) => setActiveCandidate(event?.active?.data?.current?.candidate || null)}
-          onDragCancel={() => setActiveCandidate(null)}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="pipeline-board-scroll">
-            <div className="pipeline-board">
-              {PIPELINE_STAGES.map((stage) => (
-                <PipelineColumn key={stage.key} stage={stage} candidates={groupedCandidates[stage.key] || []} onQuickAction={handleQuickAction} quickActionLoadingId={updatingResultId} />
-              ))}
-            </div>
-          </div>
-
-          <DragOverlay>
-            {activeCandidate ? <CandidateCard candidate={activeCandidate} isDragging onQuickAction={() => {}} quickActionLoadingId={updatingResultId} /> : null}
-          </DragOverlay>
-        </DndContext>
+        <div className="space-y-6">
+          {PIPELINE_STAGES.map((stage) => {
+            const stageCandidates = groupedCandidates[stage.key] || [];
+            if (!stageCandidates.length) return null;
+            return (
+              <div key={stage.key} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-900 dark:text-white">{stage.label} <span className="text-slate-500 text-sm">({stageCandidates.length} candidates)</span></h3>
+                  <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-sm font-bold rounded-full">{stageCandidates.length}</span>
+                </div>
+                <div className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {stageCandidates.map((candidate) => (
+                      <CandidateCard key={candidate.result_id} candidate={candidate} onQuickAction={handleQuickAction} quickActionLoadingId={updatingResultId} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

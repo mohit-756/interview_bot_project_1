@@ -801,10 +801,64 @@ def hr_candidate_detail(
     }
 
 
-# 1) What this does: returns skill-gap details for a candidate against one JD.
-# 2) Why needed: the HR candidate detail page needs matched and missing skills for quick review.
-# 3) How it works: finds the candidate, resolves the requested or latest HR-owned job, extracts resume text, and reuses existing skill-match logic.
-@router.post("/hr/candidates/{candidate_uid}/assign-jd")
+@router.post("/hr/candidates/batch-details")
+def hr_candidates_batch_details(
+    payload: dict,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    candidate_uids = payload.get("candidate_uids", [])
+    if not candidate_uids or not isinstance(candidate_uids, list):
+        raise HTTPException(status_code=400, detail="Invalid candidate_uids list")
+
+    candidates = (
+        db.query(Candidate)
+        .filter(Candidate.candidate_uid.in_(candidate_uids))
+        .all()
+    )
+
+    results_by_candidate = {}
+    for candidate in candidates:
+        results = (
+            _candidate_result_scope(db, current_user.user_id)
+            .filter(Result.candidate_id == candidate.id)
+            .order_by(Result.id.desc())
+            .all()
+        )
+        applications = []
+        for result in results:
+            latest_session = _latest_session(result)
+            applications.append({
+                "result_id": result.id,
+                "application_id": result.application_id,
+                "job": {
+                    "id": result.job.id if result.job else None,
+                    "title": (result.job.jd_title or Path(result.job.jd_text).name) if result.job else None,
+                },
+                "score": float(result.score) if result.score is not None else None,
+                "final_score": float(result.final_score) if result.final_score is not None else None,
+                "recommendation": result.recommendation,
+                "score_breakdown": result.score_breakdown_json or {},
+                "shortlisted": bool(result.shortlisted),
+                "status": _status_payload(result, latest_session),
+                "stage": _status_payload(result, latest_session),
+                "interview_date": result.interview_date,
+                "interview_link": result.interview_link,
+                "explanation": result.explanation or {},
+            })
+        
+        results_by_candidate[candidate.candidate_uid] = {
+            "candidate": {
+                "id": candidate.id,
+                "candidate_uid": candidate.candidate_uid,
+                "name": candidate.name,
+                "email": candidate.email,
+                "resume_path": candidate.resume_path,
+            },
+            "applications": applications,
+        }
+
+    return {"ok": True, "candidates": results_by_candidate}
 def hr_assign_candidate_to_jd(
     candidate_uid: str,
     payload: CandidateAssignJDBody,

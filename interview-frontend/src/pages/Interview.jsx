@@ -1,11 +1,3 @@
-/**
- * Interview.jsx — Live interview page with enhanced proctoring + TTS (Indian accent).
- *
- * FIXES IN THIS FILE:
- *   C2: Pass resultId to useProctoring so tab-switch events route to the correct backend endpoint
- *   I1: Handle HTTP 400 "already answered" gracefully — treat as success, reload session
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {

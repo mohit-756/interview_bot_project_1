@@ -104,12 +104,13 @@ export default function HRAnalyticsPage() {
           hasMore = response.has_next;
           pageNumber += 1;
         }
-        // Enrich with application detail
-        const details = await Promise.allSettled(
-          allCandidates.map((c) => hrApi.candidateDetail(c.candidate_uid))
-        );
+        // Enrich with application detail using batch API
+        const candidateUids = allCandidates.map((c) => c.candidate_uid);
+        const batchResponse = await hrApi.batchCandidateDetails(candidateUids);
+        const candidatesData = batchResponse.candidates || {};
+        const details = candidateUids.map((uid) => candidatesData[uid] || { candidate: {}, applications: [] });
         const enriched = allCandidates.map((c, i) => {
-          const detail = details[i].status === "fulfilled" ? details[i].value : null;
+          const detail = details[i];
           const app = detail?.applications?.[0] || {};
           const dc = detail?.candidate || {};
           return {

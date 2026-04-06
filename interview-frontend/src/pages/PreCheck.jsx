@@ -371,7 +371,6 @@ export default function PreCheck() {
                 <div className="w-1 h-1 bg-blue-400 rounded-full flex-shrink-0" />
                 <span>Use Chrome or Edge for best voice recording support</span>
               </li>
-              {/* FIX I2: Inform candidates about TTS before the interview starts */}
               <li className="flex items-start space-x-2">
                 <Volume2 size={12} className="flex-shrink-0 mt-0.5" />
                 <span>Each question will be <strong>read aloud automatically</strong> — you can mute this at any time using the voice button during the interview</span>

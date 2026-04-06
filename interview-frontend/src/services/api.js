@@ -204,6 +204,10 @@ export const hrApi = {
     const response = await request({ method: "get", url: `/hr/candidates/${candidateUid}` });
     return normalizeCandidateDetail(response);
   },
+  async batchCandidateDetails(candidateUids) {
+    const response = await request({ method: "post", url: "/hr/candidates/batch-details", data: { candidate_uids: candidateUids } });
+    return response;
+  },
   skillGap: (candidateUid, jobId) => request({ method: "get", url: `/hr/candidates/${candidateUid}/skill-gap`, params: jobId ? { job_id: jobId } : undefined }),
   deleteCandidate: (candidateUid) => request({ method: "post", url: `/hr/candidates/${candidateUid}/delete` }),
   updateCandidateStage: (resultId, payload) => request({ method: "post", url: `/hr/results/${resultId}/stage`, data: payload }),

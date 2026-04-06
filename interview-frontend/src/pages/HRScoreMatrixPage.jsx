@@ -62,10 +62,11 @@ export default function HRScoreMatrixPage() {
         hasMore = response.has_next;
         pageNumber += 1;
       }
-      const details = await Promise.all(
-        allCandidates.map((candidate) => hrApi.candidateDetail(candidate.candidate_uid)),
-      );
-      const detailMap = new Map(details.map((detail) => [detail.candidate.candidate_uid, detail]));
+      const candidateUids = allCandidates.map((c) => c.candidate_uid);
+      const batchResponse = await hrApi.batchCandidateDetails(candidateUids);
+      const candidatesData = batchResponse.candidates || {};
+      const details = candidateUids.map((uid) => candidatesData[uid] || { candidate: {}, applications: [] });
+      const detailMap = new Map(details.map((detail) => [detail.candidate?.candidate_uid || detail.candidate?.uid, detail]));
       const mergedRows = allCandidates.map((candidate) => {
         const detail = detailMap.get(candidate.candidate_uid);
         const detailCandidate = detail?.candidate || {};

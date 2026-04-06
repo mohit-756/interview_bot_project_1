@@ -58,15 +58,12 @@ function SkillsEditor({ skills, onChange }) {
   );
 }
 
-// PHASE 1 FIX: Added education_requirement, experience_requirement,
-// min_academic_percent, project_question_ratio — previously hardcoded to defaults.
 function JdForm({ initialData, onSave, onCancel }) {
   const [title, setTitle] = useState(initialData?.title || "");
   const [jdText, setJdText] = useState(initialData?.jd_text || "");
-  const [qualifyScore, setQualifyScore] = useState(initialData?.qualify_score ?? 65);
-  const [totalQuestions, setTotalQuestions] = useState(initialData?.total_questions ?? 8);
+  const [qualifyScore, setQualifyScore] = useState(initialData?.qualify_score ?? 60);
+  const [totalQuestions, setTotalQuestions] = useState(initialData?.total_questions ?? 5);
   const [skills, setSkills] = useState(initialData?.weights_json || {});
-  // NEW: previously hardcoded fields now exposed as form controls
   const [educationRequirement, setEducationRequirement] = useState(initialData?.education_requirement || "");
   const [experienceRequirement, setExperienceRequirement] = useState(initialData?.experience_requirement ?? 0);
   const [minAcademicPercent, setMinAcademicPercent] = useState(initialData?.min_academic_percent ?? 0);
@@ -200,8 +197,7 @@ function JdForm({ initialData, onSave, onCancel }) {
           <SkillsEditor skills={skills} onChange={setSkills} />
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center">
-            <p className="text-sm text-slate-500">Upload a JD file to auto-extract skills, or add them manually.</p>
-            <button onClick={() => setSkills({ "python": 5 })} className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline">Add skill manually</button>
+            <p className="text-sm text-slate-500">Upload a JD file to auto-extract skills.</p>
           </div>
         )}
       </div>
