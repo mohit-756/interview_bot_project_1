@@ -5,14 +5,16 @@ import json
 import logging
 import os
 import re
+import time
 from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any
 
-import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from pathlib import Path
-from utils.token_utils import log_token_usage
+from utils.token_utils import log_token_usage, get_snapshot
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -87,6 +89,26 @@ def _resolve_llm_config() -> dict[str, Any]:
         "fallback_model": fallback_model,
     }
 
+def _build_session() -> requests.Session:
+    """Create a requests.Session with connection pooling and automatic retries."""
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["POST"],
+    )
+    adapter = HTTPAdapter(
+        pool_connections=4,
+        pool_maxsize=8,
+        max_retries=retry,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+_session = _build_session()
+
 class OpenAIAdapter:
     """Generic adapter for any OpenAI-compatible API (Cerebras, Groq, Ollama, OpenAI)."""
     def __init__(self, base_url: str, api_key: str, model: str):
@@ -102,6 +124,20 @@ class OpenAIAdapter:
         if cache_key in _llm_cache:
             logger.info(f"CACHE_HIT: model={model}")
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=_llm_cache[cache_key]))])
+
+        # Budget check before making the request
+        budget = get_snapshot()
+        if budget.get("blocked"):
+            logger.error("LLM request BLOCKED: daily token budget exceeded (%s%%)", budget["budget_pct"])
+            raise RuntimeError(
+                f"Daily LLM token budget exceeded ({budget['budget_pct']}% used). "
+                f"Remaining: {budget['budget_remaining']} tokens."
+            )
+
+        throttle_delay = budget.get("throttle_delay", 0)
+        if throttle_delay > 0:
+            logger.warning("LLM throttling: sleeping %ss due to %s%% budget usage", throttle_delay, budget["budget_pct"])
+            time.sleep(throttle_delay)
 
         url = f"{self.base_url}/chat/completions"
         payload = {
@@ -121,7 +157,13 @@ class OpenAIAdapter:
         prompt_text = "\n".join([m.get("content", "") for m in messages])
         
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=120)
+            resp = _session.post(url, json=payload, headers=headers, timeout=120)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 30))
+                logger.warning("Rate limited (429). Retrying after %ds...", retry_after)
+                time.sleep(retry_after)
+                resp = _session.post(url, json=payload, headers=headers, timeout=120)
+
             if resp.status_code != 200:
                 logger.error(f"LLM API Error ({resp.status_code}): {resp.text}")
                 resp.raise_for_status()

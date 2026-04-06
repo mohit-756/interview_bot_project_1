@@ -1,7 +1,10 @@
 import time
+import json
 import logging
+import os
 from dataclasses import dataclass, field
 from threading import Lock
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -9,11 +12,39 @@ logger = logging.getLogger(__name__)
 # Cerebras Free-Tier limits (llama3.1-8b)
 # ---------------------------------------------------------------------------
 CEREBRAS_LIMITS = {
-    "rpm": 30,           # requests per minute
-    "tpm": 60_000,       # tokens per minute
+    "rpm": 30,
+    "tpm": 60_000,
     "daily_tokens": 1_000_000,
 }
 
+# ---------------------------------------------------------------------------
+# Configurable daily budget (default = full free tier)
+# ---------------------------------------------------------------------------
+DAILY_BUDGET = int(os.getenv("LLM_DAILY_TOKEN_BUDGET", CEREBRAS_LIMITS["daily_tokens"]))
+THROTTLE_AT_PCT = int(os.getenv("LLM_THROTTLE_AT_PCT", 80))
+BLOCK_AT_PCT = int(os.getenv("LLM_BLOCK_AT_PCT", 95))
+
+# ---------------------------------------------------------------------------
+# Persistent daily usage file (survives server restarts)
+# ---------------------------------------------------------------------------
+_USAGE_FILE = Path(".cache/daily_usage.json")
+Path(".cache").mkdir(exist_ok=True)
+
+def _load_daily_state() -> tuple[int, float]:
+    """Return (daily_total, day_start) from disk."""
+    if _USAGE_FILE.exists():
+        try:
+            data = json.loads(_USAGE_FILE.read_text())
+            return data.get("daily_total", 0), data.get("day_start", time.time())
+        except Exception:
+            pass
+    return 0, time.time()
+
+def _save_daily_state(daily_total: int, day_start: float) -> None:
+    try:
+        _USAGE_FILE.write_text(json.dumps({"daily_total": daily_total, "day_start": day_start}))
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Sliding-window tracker
@@ -24,12 +55,9 @@ class _WindowEntry:
     prompt_tokens: int
     completion_tokens: int
 
-
 _lock = Lock()
 _entries: list[_WindowEntry] = []
-_daily_total: int = 0
-_day_start: float = time.time()
-
+_daily_total, _day_start = _load_daily_state()
 
 def _prune(now: float) -> None:
     """Drop entries older than 60 s and reset daily counter after 24 h."""
@@ -40,7 +68,21 @@ def _prune(now: float) -> None:
     if now - _day_start > 86_400:
         _daily_total = 0
         _day_start = now
+        _save_daily_state(0, _day_start)
+        logger.info("LLM_BUDGET: Daily token counter reset.")
 
+def _check_budget() -> dict:
+    """Return throttle/block status based on current daily usage."""
+    pct = (_daily_total / DAILY_BUDGET * 100) if DAILY_BUDGET > 0 else 0
+    blocked = pct >= BLOCK_AT_PCT
+    throttled = pct >= THROTTLE_AT_PCT
+    return {
+        "budget_pct": round(pct, 1),
+        "budget_remaining": max(0, DAILY_BUDGET - _daily_total),
+        "throttled": throttled,
+        "blocked": blocked,
+        "throttle_delay": 5 if throttled and not blocked else 0,
+    }
 
 def track_request(prompt_tokens: int = 0, completion_tokens: int = 0) -> dict:
     """Record one completed LLM call and return current usage snapshot."""
@@ -50,20 +92,22 @@ def track_request(prompt_tokens: int = 0, completion_tokens: int = 0) -> dict:
         _entries.append(_WindowEntry(now, prompt_tokens, completion_tokens))
         _daily_total += prompt_tokens + completion_tokens
         _prune(now)
+        _save_daily_state(_daily_total, _day_start)
         rpm = len(_entries)
         tpm = sum(e.prompt_tokens + e.completion_tokens for e in _entries)
+        budget = _check_budget()
         return {
             "rpm": rpm,
             "tpm": tpm,
             "daily_tokens": _daily_total,
             "rpm_limit": CEREBRAS_LIMITS["rpm"],
             "tpm_limit": CEREBRAS_LIMITS["tpm"],
-            "daily_limit": CEREBRAS_LIMITS["daily_tokens"],
+            "daily_limit": DAILY_BUDGET,
             "rpm_pct": round(rpm / CEREBRAS_LIMITS["rpm"] * 100, 1),
             "tpm_pct": round(tpm / CEREBRAS_LIMITS["tpm"] * 100, 1),
-            "daily_pct": round(_daily_total / CEREBRAS_LIMITS["daily_tokens"] * 100, 1),
+            "daily_pct": round(_daily_total / DAILY_BUDGET * 100, 1) if DAILY_BUDGET > 0 else 0,
+            **budget,
         }
-
 
 def parse_rate_limit_headers(headers: dict) -> dict:
     """Extract Cerebras rate-limit headers into a readable dict."""
@@ -74,7 +118,6 @@ def parse_rate_limit_headers(headers: dict) -> dict:
         "reset_tokens_minute_s": headers.get("x-ratelimit-reset-tokens-minute"),
     }
 
-
 def get_snapshot() -> dict:
     """Return current usage without adding a new entry."""
     now = time.time()
@@ -82,25 +125,25 @@ def get_snapshot() -> dict:
         _prune(now)
         rpm = len(_entries)
         tpm = sum(e.prompt_tokens + e.completion_tokens for e in _entries)
+        budget = _check_budget()
         return {
             "rpm": rpm,
             "tpm": tpm,
             "daily_tokens": _daily_total,
             "rpm_limit": CEREBRAS_LIMITS["rpm"],
             "tpm_limit": CEREBRAS_LIMITS["tpm"],
-            "daily_limit": CEREBRAS_LIMITS["daily_tokens"],
+            "daily_limit": DAILY_BUDGET,
             "rpm_pct": round(rpm / CEREBRAS_LIMITS["rpm"] * 100, 1),
             "tpm_pct": round(tpm / CEREBRAS_LIMITS["tpm"] * 100, 1),
-            "daily_pct": round(_daily_total / CEREBRAS_LIMITS["daily_tokens"] * 100, 1),
+            "daily_pct": round(_daily_total / DAILY_BUDGET * 100, 1) if DAILY_BUDGET > 0 else 0,
+            **budget,
         }
-
 
 def estimate_tokens(text: str) -> int:
     """Rough estimate: 4 chars ≈ 1 token (fallback only)."""
     if not text:
         return 0
     return max(1, len(text) // 4)
-
 
 def log_token_usage(
     prompt: str = "",
@@ -136,15 +179,19 @@ def log_token_usage(
         f" | rpm={usage['rpm']}/{usage['rpm_limit']} ({usage['rpm_pct']}%)"
         f" | tpm={usage['tpm']}/{usage['tpm_limit']} ({usage['tpm_pct']}%)"
         f" | daily={usage['daily_tokens']}/{usage['daily_limit']} ({usage['daily_pct']}%)"
+        f" | budget_remaining={usage['budget_remaining']}"
         f"{header_info}"
     )
 
-    # Warn if approaching limits
-    if usage["rpm_pct"] >= 80:
+    if usage.get("blocked"):
+        logger.error("LLM_BUDGET_BLOCKED: Daily usage at %s%% — requests should be rejected!", usage["budget_pct"])
+    elif usage.get("throttled"):
+        logger.warning("LLM_BUDGET_THROTTLED: Daily usage at %s%% — adding delay to requests.", usage["budget_pct"])
+    elif usage["rpm_pct"] >= 80:
         logger.warning("LLM_RATE_WARN: RPM at %s%% of limit!", usage["rpm_pct"])
-    if usage["tpm_pct"] >= 80:
+    elif usage["tpm_pct"] >= 80:
         logger.warning("LLM_RATE_WARN: TPM at %s%% of limit!", usage["tpm_pct"])
-    if usage["daily_pct"] >= 80:
+    elif usage["daily_pct"] >= 80:
         logger.warning("LLM_RATE_WARN: Daily token usage at %s%% of limit!", usage["daily_pct"])
 
     return total
