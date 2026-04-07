@@ -1,0 +1,20 @@
+{
+  "job_title": "Junior Full Stack Developer",
+  "min_academic_percent": 60,
+  "required_skills": {
+    "HTML": 10,
+    "CSS": 10,
+    "JavaScript": 8,
+    "Java": 8,
+    "Python": 7,
+    "MySQL": 8,
+    "Web Development": 9
+  },
+  "preferred_skills": [
+    "E-commerce Systems",
+    "Frontend Design",
+    "Basic AI/ML"
+  ],
+  "experience_level": "Fresher",
+  "description": "Looking for developers with strong web fundamentals, capable of building responsive applications and working on end-to-end web solutions."
+}

@@ -824,6 +824,18 @@ def _question_bank_category_coverage(questions: list[dict[str, Any]]) -> dict[st
 
     categories: set[str] = set()
 
+    type_to_category = {
+        "opener": "intro",
+        "behavioral": "behavioral",
+        "project": "project",
+        "deep_dive": "project",
+        "architecture": "project",
+        "leadership": "project",
+        "debugging": "project",
+        "decision": "project",
+        "role_specific": "project",
+    }
+
     for item in questions:
 
         if not isinstance(item, dict):
@@ -834,7 +846,10 @@ def _question_bank_category_coverage(questions: list[dict[str, Any]]) -> dict[st
 
         if explicit:
 
-            categories.add(explicit)
+            if explicit in type_to_category:
+                categories.add(type_to_category[explicit])
+            else:
+                categories.add(explicit)
 
             continue
 

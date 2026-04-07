@@ -1,0 +1,22 @@
+{
+  "job_title": "AI/ML Engineer",
+  "min_academic_percent": 70,
+  "required_skills": {
+    "Python": 10,
+    "Machine Learning": 10,
+    "NLP": 9,
+    "scikit-learn": 9,
+    "Pandas": 8,
+    "NumPy": 8,
+    "Data Analysis": 9,
+    "SQL": 7
+  },
+  "preferred_skills": [
+    "TF-IDF",
+    "Sentiment Analysis",
+    "Model Evaluation",
+    "Data Visualization"
+  ],
+  "experience_level": "Fresher / Intern",
+  "description": "Looking for candidates with strong fundamentals in machine learning and NLP, capable of building predictive models and performing end-to-end data analysis."
+}

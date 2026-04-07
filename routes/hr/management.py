@@ -830,6 +830,16 @@ def hr_candidates_batch_details(
             .all()
         )
         applications = []
+        latest_result = results[0] if results else None
+        score_breakdown = latest_result.score_breakdown_json or {} if latest_result else {}
+        
+        semantic_score = float(latest_result.score) if latest_result and latest_result.score is not None else None
+        skill_match_score = float(latest_result.explanation.get("matched_percentage", 0)) if latest_result and latest_result.explanation else None
+        interview_score = score_breakdown.get("interview_performance_score") or score_breakdown.get("interview_score")
+        behavioral_score = latest_result.hr_behavioral_score if latest_result and latest_result.hr_behavioral_score is not None else score_breakdown.get("behavioral_score")
+        communication_score = latest_result.hr_communication_score if latest_result and latest_result.hr_communication_score is not None else score_breakdown.get("communication_behavior_score")
+        final_ai_score = latest_result.final_score if latest_result and latest_result.final_score is not None else score_breakdown.get("final_weighted_score")
+        
         for result in results:
             latest_session = _latest_session(result)
             applications.append({
@@ -858,6 +868,13 @@ def hr_candidates_batch_details(
                 "name": candidate.name,
                 "email": candidate.email,
                 "resume_path": candidate.resume_path,
+                "semanticScore": semantic_score,
+                "skillMatchScore": skill_match_score,
+                "interviewScore": interview_score,
+                "behavioralScore": behavioral_score,
+                "communicationScore": communication_score,
+                "finalAIScore": final_ai_score,
+                "finalDecision": latest_result.hr_decision if latest_result else None,
             },
             "applications": applications,
         }

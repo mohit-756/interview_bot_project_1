@@ -1,0 +1,69 @@
+
+# 📄 Job Description
+
+## Software Engineer – Backend / AI Screening Systems
+
+**Location:** Remote / Hyderabad
+**Experience:** 0–1 Years
+**Employment Type:** Full-Time
+
+---
+
+## 🔹 About the Role
+
+We are looking for a Software Engineer with strong backend fundamentals and interest in AI-driven automation systems. The candidate will work on building scalable screening, evaluation, and analytics platforms using Python-based backend frameworks and modern frontend tools.
+
+---
+
+## 🔹 Key Responsibilities
+
+* Develop and maintain backend services using **Python (FastAPI)**.
+* Design and implement **REST APIs** for data processing and system workflows.
+* Build and optimize **resume screening and evaluation pipelines** using NLP techniques.
+* Develop structured **candidate scoring and ranking systems** based on relevance metrics.
+* Integrate frontend applications built with **React** with backend services.
+* Work with SQL-based databases for structured data management.
+* Collaborate with cross-functional teams to improve system performance and scalability.
+
+---
+
+## 🔹 Required Skills
+
+* Strong knowledge of **Python**
+* Experience with **FastAPI / Flask / Django**
+* Understanding of **REST APIs and backend architecture**
+* Basic knowledge of **NLP techniques (TF-IDF, similarity scoring, keyword matching)**
+* Experience with **SQL databases (SQLite / MySQL / PostgreSQL)**
+* Familiarity with **React or modern frontend frameworks**
+* Good understanding of OOPS and data structures
+
+---
+
+## 🔹 Good to Have
+
+* Experience building AI-based automation systems
+* Knowledge of similarity metrics or semantic search
+* Exposure to proctoring or monitoring systems
+* Git version control experience
+
+---
+
+## 🔹 What We Offer
+
+* Opportunity to work on AI-driven evaluation systems
+* Exposure to real-world hiring automation workflows
+* Performance-based growth opportunities
+
+---
+
+# 🎯 Why This JD Fits You 95%
+
+Your resume contains:
+
+✔ FastAPI
+✔ NLP similarity
+✔ Resume screening
+✔ React
+✔ SQL
+✔ Scoring engine
+✔ Backend workflow

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Eye, Search, PlayCircle, CheckCircle, AlertTriangle, Clock, Calendar } from "lucide-react";
+import { Eye, Search, PlayCircle, CheckCircle, AlertTriangle, Clock, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
@@ -12,6 +12,8 @@ export default function HRInterviewListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
     async function load() {
@@ -41,6 +43,11 @@ export default function HRInterviewListPage() {
         .some((value) => String(value).toLowerCase().includes(needle));
     });
   }, [data, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
+  const paginatedRows = filteredRows.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+  useEffect(() => { setPage(1); }, [search, itemsPerPage]);
 
   const suspiciousTotal = filteredRows.reduce((sum, row) => sum + Number(row.suspicious_events_count || 0), 0);
   const completedCount = filteredRows.filter((row) => row.status === "completed" || row.status === "selected" || row.status === "rejected").length;
@@ -72,8 +79,8 @@ export default function HRInterviewListPage() {
           <input type="search" placeholder="Search candidate, email, job, application, or status" value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
 
-        {!filteredRows.length && <p className="muted">No interviews found.</p>}
-        {!!filteredRows.length && (
+        {!paginatedRows.length && <p className="muted">No interviews found.</p>}
+        {!!paginatedRows.length && (
           <table className="table">
             <thead>
               <tr>
@@ -88,7 +95,7 @@ export default function HRInterviewListPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
+              {paginatedRows.map((row) => (
                 <tr key={row.interview_id}>
                   <td className="text-sm font-mono text-slate-500">{row.application_id || "N/A"}</td>
                   <td>
@@ -121,6 +128,26 @@ export default function HRInterviewListPage() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {filteredRows.length > itemsPerPage && (
+          <div className="p-5 bg-slate-50/30 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-500">Show</span>
+              <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setPage(1); }} className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm dark:text-white">
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+              </select>
+              <span className="text-sm text-slate-500">per page</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all"><ChevronLeft size={18} /></button>
+              <span className="text-sm font-bold text-slate-900 dark:text-white px-2">Page {page} of {totalPages}</span>
+              <button disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all"><ChevronRight size={18} /></button>
+            </div>
+          </div>
         )}
       </section>
     </div>

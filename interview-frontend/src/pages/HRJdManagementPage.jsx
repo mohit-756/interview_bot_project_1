@@ -223,11 +223,11 @@ export default function HRJdManagementPage() {
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showForm, setShowForm] = useState(false);
   const [editingJd, setEditingJd] = useState(null);
   const [openMenu, setOpenMenu] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const PAGE_SIZE = 10;
 
   const loadJds = useCallback(async () => {
     setLoading(true); setError("");
@@ -243,8 +243,10 @@ export default function HRJdManagementPage() {
     return !q ? jds : jds.filter((j) => [j.title, String(j.id)].some((v) => String(v || "").toLowerCase().includes(q)));
   }, [jds, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const paged = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+  useEffect(() => { setPage(1); }, [search, itemsPerPage]);
 
   async function handleDelete(jdId) {
     if (!confirm("Delete this JD?")) return;
@@ -373,7 +375,16 @@ export default function HRJdManagementPage() {
           </table>
         </div>
         <div className="p-5 bg-slate-50/30 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <p className="text-sm text-slate-500">Showing {paged.length} of {filtered.length}</p>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-500">Show</span>
+            <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setPage(1); }} className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm dark:text-white">
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={15}>15</option>
+              <option value={25}>25</option>
+            </select>
+            <span className="text-sm text-slate-500">per page</span>
+          </div>
           <div className="flex items-center gap-2">
             <button disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-900 transition-all"><ChevronLeft size={18} /></button>
             <span className="text-sm font-bold text-slate-900 dark:text-white px-2">Page {page} of {totalPages}</span>

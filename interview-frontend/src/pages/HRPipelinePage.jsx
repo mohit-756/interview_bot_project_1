@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Eye, RefreshCw, ThumbsDown, ThumbsUp, Users, UserCheck, UserPlus, Calendar, CheckCircle, UserMinus, XCircle } from "lucide-react";
+import { Eye, RefreshCw, ThumbsDown, ThumbsUp, Users, UserCheck, UserPlus, Calendar, CheckCircle, UserMinus, XCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
 import ScoreBadge from "../components/ScoreBadge";
 import { hrApi } from "../services/api";
@@ -69,6 +69,8 @@ export default function HRPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingResultId, setUpdatingResultId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   async function loadCandidates() {
     setLoading(true);
@@ -132,6 +134,11 @@ export default function HRPipelinePage() {
     });
     return counts;
   }, [filteredCandidates]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCandidates / itemsPerPage));
+  const paginatedCandidates = filteredCandidates.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+  useEffect(() => { setPage(1); }, [selectedJdId, itemsPerPage]);
 
   function updateCandidateStageLocally(candidateId, nextStage) {
     const normalizedStage = normalizeStageKey(nextStage);

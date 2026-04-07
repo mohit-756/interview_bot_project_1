@@ -1,0 +1,22 @@
+{
+  "job_title": "AI Backend Engineer",
+  "min_academic_percent": 60,
+  "required_skills": {
+    "Python": 10,
+    "FastAPI": 10,
+    "SQL": 8,
+    "NLP": 9,
+    "Machine Learning": 8,
+    "API Development": 9,
+    "Backend Development": 9,
+    "React": 6
+  },
+  "preferred_skills": [
+    "LLM Integration",
+    "Whisper",
+    "Proctoring Systems",
+    "System Design"
+  ],
+  "experience_level": "Fresher / Intern",
+  "description": "Looking for candidates with strong backend and AI system development experience, capable of building scalable APIs and implementing NLP-based solutions."
+}
