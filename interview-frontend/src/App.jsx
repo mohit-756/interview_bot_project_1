@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import DashboardLayout from "./layout/DashboardLayout";
+import { ToastProvider } from "./context/ToastContext";
 import { useAuth } from "./context/useAuth";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
@@ -49,7 +50,8 @@ function PublicOnlyRoute({ children }) {
 
 export default function App() {
   return (
-    <Routes>
+    <ToastProvider>
+      <Routes>
       {/* Public routes */}
       <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
       <Route path="/signup" element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>} />
@@ -102,5 +104,6 @@ export default function App() {
       <Route path="/" element={<HomeRedirect />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </ToastProvider>
   );
 }

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, ArrowUpDown, GitCompareArrows, Calendar, CheckCircle, XCircle } from "lucide-react";
+import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, ArrowUpDown, GitCompareArrows, Calendar, CheckCircle, XCircle, Users, Filter } from "lucide-react";
 import StatusBadge from "../components/StatusBadge";
 import ScoreBadge from "../components/ScoreBadge";
+import EmptyState from "../components/EmptyState";
+import { TableSkeleton } from "../components/LoadingSkeleton";
+import { useToast } from "../context/ToastContext";
 import { hrApi } from "../services/api";
 import { ATS_STAGE_DEFINITIONS, ATS_STAGE_OPTIONS } from "../utils/stages";
 import { cn } from "../utils/utils";
@@ -39,6 +42,7 @@ export default function HRCandidatesPage() {
   const [bulkStage, setBulkStage] = useState("");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const toast = useToast();
 
   const loadAllCandidates = useCallback(async () => {
     setLoading(true);
@@ -136,8 +140,9 @@ export default function HRCandidatesPage() {
     try {
       await hrApi.deleteCandidate(candidateUid);
       await loadAllCandidates();
+      toast.success("Candidate deleted successfully");
     } catch (deleteError) {
-      setError(deleteError.message || "Failed to delete candidate.");
+      toast.error(deleteError.message || "Failed to delete candidate.");
     }
   }
 
@@ -147,8 +152,9 @@ export default function HRCandidatesPage() {
     try {
       await hrApi.updateCandidateStage(safeResultId, { stage, note: `Updated from candidate table to ${stage}.` });
       await loadAllCandidates();
+      toast.success("Stage updated successfully");
     } catch (updateError) {
-      setError(updateError.message || "Failed to update stage.");
+      toast.error(updateError.message || "Failed to update stage.");
     }
   }
 
@@ -159,11 +165,12 @@ export default function HRCandidatesPage() {
     setError("");
     try {
       await Promise.all(selectedForBulk.map((resultId) => hrApi.updateCandidateStage(resultId, { stage: safeStage, note: `Bulk updated from candidate table to ${safeStage}.` })));
+      toast.success(`Updated ${selectedForBulk.length} candidates to ${safeStage}`);
       setSelectedForBulk([]);
       setBulkStage("");
       await loadAllCandidates();
     } catch (updateError) {
-      setError(updateError.message || "Failed to update selected candidates.");
+      toast.error(updateError.message || "Failed to update selected candidates.");
     } finally {
       setBulkLoading(false);
     }
@@ -174,8 +181,9 @@ export default function HRCandidatesPage() {
     try {
       await hrApi.assignCandidateToJd(candidateUid, Number(jdId));
       await loadAllCandidates();
+      toast.success("Candidate assigned to JD");
     } catch (assignError) {
-      setError(assignError.message || "Failed to assign candidate to JD.");
+      toast.error(assignError.message || "Failed to assign candidate to JD.");
     }
   }
 
@@ -241,7 +249,21 @@ export default function HRCandidatesPage() {
   const pageIds = paginatedCandidates.map((candidate) => normalizeId(candidate?.result_id)).filter(Boolean);
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedForBulk.includes(id));
 
-  if (loading && !allCandidates.length) return <p className="center muted py-12">Loading candidates...</p>;
+  if (loading && !allCandidates.length) {
+    return (
+      <div className="space-y-8 pb-12">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 page-enter">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display">Candidate Directory</h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Review ATS scores, assigned JDs, pipeline stages, recommendations, compare candidates, and apply bulk actions safely.</p>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <TableSkeleton rows={10} cols={7} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-12">
@@ -325,7 +347,17 @@ export default function HRCandidatesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-              {!paginatedCandidates.length ? <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No candidates found.</td></tr> : paginatedCandidates.map((candidate, index) => {
+              {!paginatedCandidates.length ? (
+                <tr>
+                  <td colSpan={7}>
+                    <EmptyState 
+                      icon="candidates" 
+                      title="No candidates found" 
+                      description={searchTerm || statusFilter !== "all" || jdFilter !== "all" ? "Try adjusting your filters or search term" : "Add candidates to get started"}
+                    />
+                  </td>
+                </tr>
+              ) : paginatedCandidates.map((candidate, index) => {
                 const resultId = normalizeId(candidate?.result_id);
                 const compareSelectable = Boolean(resultId);
                 const compareChecked = compareSelectable && selectedForCompare.includes(resultId);
