@@ -67,13 +67,22 @@ export default function CandidateDashboardPage() {
 
   async function handleFileUpload(e) {
     const file = e.target.files?.[0];
-    if (!file || !dashboard?.selected_jd_id) return;
+    console.log("[UPLOAD] File selected:", file?.name, "selected_jd_id:", dashboard?.selected_jd_id);
+    if (!file || !dashboard?.selected_jd_id) {
+      console.log("[UPLOAD] Aborting - no file or no JD selected");
+      return;
+    }
     setUploading(true); setError(""); setMessage("");
     try {
+      console.log("[UPLOAD] Calling API...");
       const response = await candidateApi.uploadResume(file, dashboard.selected_jd_id);
+      console.log("[UPLOAD] Response received:", response);
       setDashboard(response);
       setMessage("Resume uploaded and scored successfully.");
-    } catch (e) { setError(e.message); }
+    } catch (e) { 
+      console.error("[UPLOAD] Error:", e.message);
+      setError(e.message); 
+    }
     finally { setUploading(false); e.target.value = ""; }
   }
 

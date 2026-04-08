@@ -4,6 +4,9 @@ import { toStatusObject } from "../utils/stages";
 const configuredBaseUrl = String(import.meta.env?.VITE_API_BASE_URL || "/api").trim();
 const baseURL = configuredBaseUrl === "/" ? "/api" : configuredBaseUrl.replace(/\/+$/, "");
 
+console.log("[API] VITE_API_BASE_URL:", import.meta.env?.VITE_API_BASE_URL);
+console.log("[API] Resolved baseURL:", baseURL);
+
 const apiClient = axios.create({
   // Defaults to /api for Vite proxy. Override via VITE_API_BASE_URL when needed.
   baseURL,
@@ -26,9 +29,12 @@ function extractErrorMessage(error) {
 
 async function request(config) {
   try {
+    console.log(`[API] ${config.method} ${config.url}`, config.data instanceof FormData ? 'FormData' : '');
     const response = await apiClient(config);
+    console.log(`[API] Success: ${config.url}`);
     return response.data;
   } catch (error) {
+    console.error(`[API] Error: ${config.url}`, error.message);
     throw new Error(extractErrorMessage(error));
   }
 }
@@ -164,6 +170,7 @@ export const candidateApi = {
     const formData = new FormData();
     formData.append("resume", file);
     if (jobId) formData.append("job_id", String(jobId));
+    console.log("[UPLOAD] Starting resume upload, file:", file?.name, "jobId:", jobId);
     return request({ method: "post", url: "/candidate/upload-resume", data: formData });
   },
   scheduleInterview: (resultId, interviewDate) => request({ method: "post", url: "/candidate/select-interview-date", data: { result_id: resultId, interview_date: interviewDate } }),
