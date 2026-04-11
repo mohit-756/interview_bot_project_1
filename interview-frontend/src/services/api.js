@@ -135,6 +135,7 @@ function normalizeCandidateDetail(data) {
       recommendationTag: candidate?.recommendation || latestApplication?.recommendationTag || latestApplication?.finalDecision?.label,
       assignedJd: candidate?.assigned_jd || null,
       hrNotes: candidate?.hr_notes || latestApplication?.hrNotes || "",
+      resume_path: candidate?.resume_path || null,
     },
     applications,
     resume_advice: resumeAdvice,
