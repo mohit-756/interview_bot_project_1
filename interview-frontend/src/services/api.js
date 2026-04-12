@@ -164,73 +164,18 @@ export const authApi = {
 
 // ── Candidate ────────────────────────────────────────────────────────────────
 export const candidateApi = {
-  dashboard: (jobId) =>
-    request({
-      method: "get",
-      url: "/candidate/dashboard",
-      params: jobId ? { job_id: jobId } : undefined,
-    }),
-
-  jds: () =>
-    request({
-      method: "get",
-      url: "/candidate/jds",
-    }),
-
-  selectJd: (jdId) =>
-    request({
-      method: "post",
-      url: "/candidate/select-jd",
-      data: { jd_id: jdId },
-    }),
-
-  // ✅ NEW S3 UPLOAD FLOW
-  uploadResume: async (file, jobId) => {
-  const API_GATEWAY = "https://lp6t2xn0q4.execute-api.ap-south-1.amazonaws.com/prod";
-
-  // 1. Get presigned URL
-  const res = await fetch(
-    `${API_GATEWAY}/upload?fileName=${Date.now()}_${file.name}&fileType=${file.type}`
-  );
-  const data = await res.json();
-
-  console.log("[UPLOAD] Uploading to S3...");
-
-  // 2. Upload to S3
-  await fetch(data.uploadUrl, {
-  method: "PUT",
-  body: file,
-  headers: {
-    "Content-Type": "application/octet-stream"
-  }
-}); 
-
-  console.log("[UPLOAD] Uploaded to S3:", data.fileUrl);
-
-  // 3. Send URL to backend (IMPORTANT)
-  return request({
-    method: "post",
-    url: "/candidate/upload-resume",
-    data: {
-      resume_url: data.fileUrl,
-      job_id: jobId,
-    },
-  });
-},
-
-  scheduleInterview: (resultId, interviewDate) =>
-    request({
-      method: "post",
-      url: "/candidate/select-interview-date",
-      data: { result_id: resultId, interview_date: interviewDate },
-    }),
-
-  practiceKit: (jobId) =>
-    request({
-      method: "get",
-      url: "/candidate/practice-kit",
-      params: jobId ? { job_id: jobId } : undefined,
-    }),
+  dashboard: (jobId) => request({ method: "get", url: "/candidate/dashboard", params: jobId ? { job_id: jobId } : undefined }),
+  jds: () => request({ method: "get", url: "/candidate/jds" }),
+  selectJd: (jdId) => request({ method: "post", url: "/candidate/select-jd", data: { jd_id: jdId } }),
+  uploadResume: (file, jobId) => {
+    const formData = new FormData();
+    formData.append("resume", file);
+    if (jobId) formData.append("job_id", String(jobId));
+    console.log("[UPLOAD] Starting resume upload, file:", file?.name, "jobId:", jobId);
+    return request({ method: "post", url: "/candidate/upload-resume", data: formData });
+  },
+  scheduleInterview: (resultId, interviewDate) => request({ method: "post", url: "/candidate/select-interview-date", data: { result_id: resultId, interview_date: interviewDate } }),
+  practiceKit: (jobId) => request({ method: "get", url: "/candidate/practice-kit", params: jobId ? { job_id: jobId } : undefined }),
 };
 
 // ── HR ───────────────────────────────────────────────────────────────────────
