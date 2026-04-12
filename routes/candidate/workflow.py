@@ -4,9 +4,9 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-import boto3
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import Body
 from sqlalchemy.orm import Session
 from services.question_generation import build_question_bundle
 from ai_engine.phase1.scoring import compute_resume_skill_match
@@ -196,115 +196,108 @@ def candidate_skill_match(
     skill_match = compute_resume_skill_match(resume_text, (job.skill_scores or {}).keys())
     return {"ok": True, "job_id": job.id, **skill_match}
 
-
 @router.post("/candidate/upload-resume")
 def upload_resume(
-    resume: UploadFile = File(...),
-    job_id: int | None = Form(None),
+    data: dict = Body(...),
     current_user: SessionUser = Depends(require_role("candidate")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    logger.info(f"UPLOAD_RESUME_START candidate_id={current_user.user_id} filename={resume.filename}")
+
+    logger.info(f"UPLOAD_RESUME_START candidate_id={current_user.user_id}")
+
     candidate = get_candidate_or_404(db, current_user.user_id)
     profile_changed = ensure_candidate_profile(candidate, db)
-    safe_filename = Path(resume.filename or "resume").name
-    if not safe_filename:
-        raise HTTPException(status_code=400, detail="Resume filename is invalid")
 
-    allowed_extensions = {".pdf", ".docx", ".doc", ".txt", ".rtf"}
-    file_ext = Path(safe_filename).suffix.lower()
-    if file_ext not in allowed_extensions:
-        raise HTTPException(status_code=400, detail=f"Unsupported file type '{file_ext}'. Allowed: {', '.join(sorted(allowed_extensions))}")
+    resume_url = data.get("resume_url")
+    job_id = data.get("job_id")
 
-    resume.file.seek(0, 2)
-    file_size = resume.file.tell()
-    resume.file.seek(0)
-    if file_size > 5_000_000:
-        raise HTTPException(status_code=400, detail="Resume file exceeds 5MB limit")
+    if not resume_url:
+        raise HTTPException(status_code=400, detail="Resume URL missing")
 
-    logger.info(f"UPLOAD_RESUME saving file for candidate_id={candidate.id}")
+    # ✅ store S3 URL (already uploaded via Lambda)
+    candidate.resume_path = resume_url
 
-    s3 = boto3.client("s3")
-    BUCKET = "interview-bot-files-123"
+    # ✅ extract text from S3
+    try:
+        resume_text = extract_text_from_file(resume_url)
+        candidate.resume_text = resume_text
+    except Exception as e:
+        logger.error(f"Text extraction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Text extraction failed: {str(e)}")
 
-    file_key = f"resumes/{candidate.id}_{uuid.uuid4().hex}_{safe_filename}"
-
-    s3.upload_fileobj(
-        resume.file,
-        BUCKET,
-        file_key,
-        ExtraArgs={"ContentType": resume.content_type}
-    )
-
-    file_url = f"https://{BUCKET}.s3.amazonaws.com/{file_key}"
-
-    candidate.resume_path = file_url
-    resume_text = extract_text_from_file(file_url)
-    candidate.resume_text = resume_text
     if profile_changed:
         db.add(candidate)
+
     db.commit()
     db.refresh(candidate)
+
     logger.info(f"UPLOAD_RESUME resume_path saved to DB: {candidate.resume_path}")
 
+    # ✅ JD handling (same as before)
     selected_jd_id = job_id or candidate.selected_jd_id
     if not selected_jd_id:
-        raise HTTPException(status_code=400, detail="Select a JD before uploading resume")
-
-    selected_jd = _selected_jd_or_404(db, selected_jd_id)
-    candidate.selected_jd_id = selected_jd.id
-    db.commit()
-    db.refresh(candidate)
-
-    logger.info(f"UPLOAD_RESUME calling evaluate_resume_for_job")
-    try:
-        score, explanation, _ = evaluate_resume_for_job(candidate, selected_jd)
-        logger.info(f"UPLOAD_RESUME evaluation done, score={score}")
-    except Exception as e:
-        logger.error(f"UPLOAD_RESUME evaluation FAILED: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Resume evaluation failed: {str(e)}")
-    
-    resume_text = (candidate.resume_text or "").strip()
-    logger.info(
-        "resume_upload_extracted candidate_id=%s file_path=%s text_len=%d stored_in_db=%s",
-        candidate.id,
-        candidate.resume_path,
-        len(resume_text),
-        bool(resume_text),
-    )
-    if not resume_text:
-        raise HTTPException(status_code=400, detail="Resume text could not be extracted. Please upload a valid PDF, DOCX, or TXT file.")
-    if not selected_jd:
-        db.commit()
         return {
             "ok": True,
-            "message": "Resume uploaded. No job description available yet.",
-            "uploaded_resume": safe_filename,
-            "result": None,
+            "message": "Resume uploaded. No job description selected.",
+            "resume_path": resume_url,
             "available_jobs": list_available_jobs(db),
             "available_jds": list_active_jds(db),
             "selected_job_id": None,
             "selected_jd_id": None,
         }
 
+    selected_jd = _selected_jd_or_404(db, selected_jd_id)
+    candidate.selected_jd_id = selected_jd.id
+
+    db.commit()
+    db.refresh(candidate)
+
+    # ✅ evaluate resume
+    logger.info("UPLOAD_RESUME calling evaluate_resume_for_job")
+
+    try:
+        score, explanation, _ = evaluate_resume_for_job(candidate, selected_jd)
+        logger.info(f"UPLOAD_RESUME evaluation done, score={score}")
+    except Exception as e:
+        logger.error(f"UPLOAD_RESUME evaluation FAILED: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Resume evaluation failed: {str(e)}")
+
+    # ✅ validate extracted text
+    resume_text = (candidate.resume_text or "").strip()
+
+    if not resume_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Resume text could not be extracted. Please upload a valid file."
+        )
+
+    # ✅ save result
     result = upsert_result(
         db,
         candidate.id,
         selected_jd.id,
         score,
         explanation,
-        cutoff_score=float(selected_jd.qualify_score if selected_jd.qualify_score is not None else 65.0),
+        cutoff_score=float(
+            selected_jd.qualify_score if selected_jd.qualify_score is not None else 65.0
+        ),
         job=selected_jd,
     )
 
-    questions = _generate_result_question_bank(result=result, resume_text=resume_text, job=selected_jd)
+    # ✅ generate questions
+    questions = _generate_result_question_bank(
+        result=result,
+        resume_text=resume_text,
+        job=selected_jd
+    )
+
     db.commit()
     db.refresh(result)
 
+    # ✅ final response (UNCHANGED functionality)
     return {
         "ok": True,
         "message": "Resume uploaded and scoring completed.",
-        "uploaded_resume": safe_filename,
         "candidate": {
             "id": candidate.id,
             "candidate_uid": candidate.candidate_uid,

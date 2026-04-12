@@ -185,17 +185,33 @@ export const candidateApi = {
     }),
 
   // ✅ NEW S3 UPLOAD FLOW
-  uploadResume: (file, jobId) => {
-  const formData = new FormData();
-  formData.append("resume", file);
-  if (jobId) formData.append("job_id", jobId);
+  uploadResume: async (file, jobId) => {
+  const API_GATEWAY = "https://lp6t2xn0q4.execute-api.ap-south-1.amazonaws.com/prod";
 
-  console.log("[UPLOAD] Sending file to backend");
+  // 1. Get presigned URL
+  const res = await fetch(
+    `${API_GATEWAY}/upload?fileName=${Date.now()}_${file.name}&fileType=${file.type}`
+  );
+  const data = await res.json();
 
+  console.log("[UPLOAD] Uploading to S3...");
+
+  // 2. Upload to S3
+  await fetch(data.uploadUrl, {
+    method: "PUT",
+    body: file
+  });
+
+  console.log("[UPLOAD] Uploaded to S3:", data.fileUrl);
+
+  // 3. Send URL to backend (IMPORTANT)
   return request({
     method: "post",
     url: "/candidate/upload-resume",
-    data: formData
+    data: {
+      resume_url: data.fileUrl,
+      job_id: jobId,
+    },
   });
 },
 
