@@ -270,3 +270,5 @@ Frontend URL: `http://localhost:5173`
 ## Known Issues
 
 - **Proctoring images lost on restart**: Images in `uploads/proctoring/` are wiped on Render server restarts. The `proctor_events.image_path` column still holds the paths, but the `.jpg` files are gone. Fix: migrate to cloud storage (S3, Cloudflare R2, or Render Persistent Disk).
+#   Q u a d r a n t _ B o t  
+ 
