@@ -119,7 +119,11 @@ export default function HRPipelinePage() {
     const groups = Object.fromEntries(PIPELINE_STAGES.map((stage) => [stage.key, []]));
     for (const candidate of filteredCandidates) {
       const stageKey = normalizeStageKey(candidate?.interviewStatus?.key);
-      groups[stageKey].push(candidate);
+      if (groups[stageKey]) {
+        groups[stageKey].push(candidate);
+      } else {
+        console.warn(`[Pipeline] Unidentified stage key: ${stageKey} for candidate result ${candidate?.result_id}`);
+      }
     }
     return groups;
   }, [filteredCandidates]);

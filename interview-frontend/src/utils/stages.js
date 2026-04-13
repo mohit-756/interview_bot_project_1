@@ -1,4 +1,7 @@
 export const ATS_STAGE_DEFINITIONS = [
+  { key: "applied", label: "Applied", tone: "secondary" },
+  { key: "screening", label: "Screening", tone: "warning" },
+  { key: "shortlisted", label: "Shortlisted", tone: "success" },
   { key: "interview_scheduled", label: "Scheduled", tone: "primary" },
   { key: "interview_completed", label: "Completed", tone: "dark" },
   { key: "selected", label: "Selected", tone: "success" },

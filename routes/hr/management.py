@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from ai_engine.phase1.scoring import compute_interview_scoring, compute_resume_skill_match
@@ -1160,7 +1160,10 @@ def hr_delete_candidate(
         logging.getLogger("uvicorn").error(f"[DELETE] Failed to delete candidate {candidate_uid}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error during deletion: {str(e)}")
 
-    return {"ok": True, "message": "Candidate deleted", "candidate_uid": candidate_uid}
+    return JSONResponse(
+        content={"ok": True, "message": "Candidate deleted", "candidate_uid": candidate_uid},
+        media_type="application/json"
+    )
 
 
 # 1) What this does: uploads a JD file and extracts its initial skill list.

@@ -19,7 +19,18 @@ function buildAvatar(name) {
 }
 
 function extractErrorMessage(error) {
-  const detail = error?.response?.data?.detail;
+  const responseData = error?.response?.data;
+  const contentType = error?.response?.headers?.["content-type"] || "";
+  
+  if (typeof responseData === "string" && !contentType.includes("application/json")) {
+    if (responseData.includes("<!DOCTYPE html>") || responseData.includes("<html")) {
+      console.error("[API] Received HTML response instead of JSON:", responseData.substring(0, 200));
+      return "Server error: Received invalid response. Please try again or contact support.";
+    }
+    return responseData;
+  }
+  
+  const detail = responseData?.detail;
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail) && detail.length) {
     return detail.map((i) => (typeof i === "string" ? i : i?.msg || JSON.stringify(i))).join(", ");
