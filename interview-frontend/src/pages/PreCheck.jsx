@@ -133,7 +133,6 @@ export default function PreCheck() {
   const [isChecking, setIsChecking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
-  const [accessReady, setAccessReady] = useState(false);
 
   // Check MediaRecorder support on mount
   useEffect(() => {
@@ -159,28 +158,6 @@ export default function PreCheck() {
       if (videoElement) videoElement.srcObject = null;
     };
   }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setAccessReady(false);
-      return;
-    }
-    let active = true;
-    async function checkInterviewAvailability() {
-      setError("");
-      try {
-        await interviewApi.access(Number(resultId));
-        if (active) setAccessReady(true);
-      } catch (e) {
-        if (active) {
-          setAccessReady(false);
-          setError(e?.message || "Interview is not available right now.");
-        }
-      }
-    }
-    checkInterviewAvailability();
-    return () => { active = false; };
-  }, [resultId, user]);
 
   if (authLoading) {
     return (
@@ -251,11 +228,9 @@ export default function PreCheck() {
     setError("");
     try {
       await interviewApi.access(Number(resultId));
-      setAccessReady(true);
       sessionStorage.setItem(`interview-consent:${resultId}`, "true");
       navigate(`/interview/${resultId}/live`);
     } catch (e) {
-      setAccessReady(false);
       setError(e?.message || "Interview questions are not ready yet. Please try again.");
     } finally {
       setStarting(false);
@@ -337,11 +312,11 @@ export default function PreCheck() {
             </button>
 
             <button
-              disabled={!cameraGranted || starting || !accessReady}
+              disabled={!cameraGranted || starting}
               onClick={handleStartInterview}
               className={cn(
                 "flex-[1.5] py-4 rounded-2xl font-black flex items-center justify-center space-x-2 transition-all shadow-xl",
-                cameraGranted && accessReady
+                cameraGranted
                   ? "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 dark:shadow-none"
                   : "bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
               )}
