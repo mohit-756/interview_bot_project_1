@@ -289,8 +289,12 @@ def evaluate_resume_for_job(
     candidate: Candidate,
     job: JobDescription,
 ) -> tuple[float, dict[str, object], list[dict[str, str]]]:
-    resume_text = extract_text_from_file(candidate.resume_path or "")
-    candidate.resume_text = resume_text
+    # Use stored resume_text if available (set by S3 upload), otherwise fallback to file extraction
+    # This handles both local file paths and S3 URLs
+    resume_text = candidate.resume_text or ""
+    if not resume_text and candidate.resume_path:
+        # Fallback for older records or non-S3 uploads
+        resume_text = extract_text_from_file(str(candidate.resume_path) if candidate.resume_path else "")
     candidate.parsed_resume_json = parse_resume_text(resume_text)
     jd_text = _load_jd_text(getattr(job, "jd_text", "") or "")
     jd_skill_scores = (
