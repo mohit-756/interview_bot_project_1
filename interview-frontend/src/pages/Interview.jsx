@@ -3,48 +3,81 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   Mic, MicOff, Send, MessageSquare, CheckCircle2,
   Activity, AlertTriangle, Eye, EyeOff, Brain,
-  Volume2, VolumeX,
+  Volume2, VolumeX, Loader2,
 } from "lucide-react";
 import { interviewApi, proctorApi } from "../services/api";
 import { cn } from "../utils/utils";
 import AnswerFeedback from "../components/AnswerFeedback";
 import { useProctoring } from "../hooks/useProctoring";
 
-// ── Browser TTS hook ──────────────────────────────────────────────────────────
+// ── Server TTS hook using Bark ─────────────────────────────────────────────────
 function useTTS() {
   const [muted, setMuted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [loading, setLoading] = useState(false);
   const audioRef = useRef(null);
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
-  const speak = useCallback((text, voiceType = "indian_female") => {
+  const speak = useCallback(async (text, voiceType = "male") => {
     if (!text) return;
     if (typeof window === "undefined") return;
-
     if (muted) return;
 
+    // Stop any current audio
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
-    if (window.speechSynthesis) {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
 
-    // Use browser's built-in TTS
-    if (!window.speechSynthesis) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/tts/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: text, voice: voiceType }),
+      });
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-IN";
-    utterance.rate = 0.88;
-    utterance.pitch = 1.05;
-    utterance.volume = 1;
+      if (!response.ok) {
+        throw new Error("TTS generation failed");
+      }
 
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      
+      audioRef.current = audio;
+      
+      audio.onplay = () => setSpeaking(true);
+      audio.onended = () => {
+        setSpeaking(false);
+        setLoading(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+      audio.onerror = () => {
+        setSpeaking(false);
+        setLoading(false);
+      };
 
-    window.speechSynthesis.speak(utterance);
-  }, [muted]);
+      await audio.play();
+    } catch (error) {
+      console.error("TTS Error:", error);
+      setLoading(false);
+      // Fallback to browser TTS if API fails
+      if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "en-IN";
+        utterance.rate = 0.88;
+        utterance.pitch = 1.05;
+        utterance.onstart = () => setSpeaking(true);
+        utterance.onend = () => setSpeaking(false);
+        utterance.onerror = () => setSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  }, [muted, API_BASE]);
 
   const stop = useCallback(() => {
     if (audioRef.current) {
@@ -55,6 +88,7 @@ function useTTS() {
       window.speechSynthesis.cancel();
     }
     setSpeaking(false);
+    setLoading(false);
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -74,7 +108,7 @@ function useTTS() {
     };
   }, []);
 
-  return { speak, stop, speaking, muted, toggleMute };
+  return { speak, stop, speaking, muted, toggleMute, ttsLoading: loading };
 }
 
 // ── tiny helpers ──────────────────────────────────────────────────────────────
@@ -180,7 +214,7 @@ export default function Interview() {
   const answerStartTimeRef   = useRef(null);
 
   // ── TTS ────────────────────────────────────────────────────────────────────
-  const { speak, stop: stopSpeaking, speaking, muted, toggleMute } = useTTS();
+  const { speak, stop: stopSpeaking, speaking, muted, toggleMute, ttsLoading } = useTTS();
 
   // ── proctoring ─────────────────────────────────────────────────────────────
   // FIX C2: Pass resultId to useProctoring so tab-switch events go to the correct
@@ -668,15 +702,19 @@ export default function Interview() {
               <button
                 type="button"
                 onClick={() => speaking ? stopSpeaking() : speak(currentQuestion?.text || "", selectedVoice)}
+                disabled={ttsLoading}
                 title={speaking ? "Stop" : "Read question aloud (Indian accent)"}
                 className={cn(
                   "flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center border transition-all",
                   speaking
                     ? "bg-blue-600 border-blue-500 text-white"
-                    : "bg-slate-800 border-slate-700 text-slate-400 hover:text-blue-400 hover:border-blue-600"
+                    : "bg-slate-800 border-slate-700 text-slate-400 hover:text-blue-400 hover:border-blue-600",
+                  ttsLoading && "opacity-50 cursor-wait"
                 )}
               >
-                {speaking ? (
+                {ttsLoading ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : speaking ? (
                   <span className="flex gap-0.5">
                     {[...Array(3)].map((_, i) => (
                       <span key={i} className="w-0.5 bg-white rounded-full animate-bounce" style={{ height: "14px", animationDelay: `${i * 0.15}s` }} />
