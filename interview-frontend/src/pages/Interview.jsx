@@ -3,81 +3,47 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   Mic, MicOff, Send, MessageSquare, CheckCircle2,
   Activity, AlertTriangle, Eye, EyeOff, Brain,
-  Volume2, VolumeX, Loader2,
+  Volume2, VolumeX,
 } from "lucide-react";
 import { interviewApi, proctorApi } from "../services/api";
 import { cn } from "../utils/utils";
 import AnswerFeedback from "../components/AnswerFeedback";
 import { useProctoring } from "../hooks/useProctoring";
 
-// ── Server TTS hook using Bark ─────────────────────────────────────────────────
+// ── Browser TTS hook ──────────────────────────────────────────────────────────
 function useTTS() {
   const [muted, setMuted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [loading, setLoading] = useState(false);
   const audioRef = useRef(null);
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
-  const speak = useCallback(async (text, voiceType = "male") => {
+  const speak = useCallback((text, voiceType = "indian_female") => {
     if (!text) return;
     if (typeof window === "undefined") return;
+
     if (muted) return;
 
-    // Stop any current audio
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
-    if (typeof window !== "undefined" && window.speechSynthesis) {
+    if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
 
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_BASE}/api/tts/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: text, voice: voiceType }),
-      });
+    if (!window.speechSynthesis) return;
 
-      if (!response.ok) {
-        throw new Error("TTS generation failed");
-      }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-IN";
+    utterance.rate = 0.88;
+    utterance.pitch = 1.05;
+    utterance.volume = 1;
 
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      
-      audioRef.current = audio;
-      
-      audio.onplay = () => setSpeaking(true);
-      audio.onended = () => {
-        setSpeaking(false);
-        setLoading(false);
-        URL.revokeObjectURL(audioUrl);
-      };
-      audio.onerror = () => {
-        setSpeaking(false);
-        setLoading(false);
-      };
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
 
-      await audio.play();
-    } catch (error) {
-      console.error("TTS Error:", error);
-      setLoading(false);
-      // Fallback to browser TTS if API fails
-      if (window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "en-IN";
-        utterance.rate = 0.88;
-        utterance.pitch = 1.05;
-        utterance.onstart = () => setSpeaking(true);
-        utterance.onend = () => setSpeaking(false);
-        utterance.onerror = () => setSpeaking(false);
-        window.speechSynthesis.speak(utterance);
-      }
-    }
-  }, [muted, API_BASE]);
+    window.speechSynthesis.speak(utterance);
+  }, [muted]);
 
   const stop = useCallback(() => {
     if (audioRef.current) {
@@ -88,7 +54,6 @@ function useTTS() {
       window.speechSynthesis.cancel();
     }
     setSpeaking(false);
-    setLoading(false);
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -108,7 +73,7 @@ function useTTS() {
     };
   }, []);
 
-  return { speak, stop, speaking, muted, toggleMute, ttsLoading: loading };
+  return { speak, stop, speaking, muted, toggleMute };
 }
 
 // ── tiny helpers ──────────────────────────────────────────────────────────────
@@ -197,11 +162,7 @@ export default function Interview() {
   const [previewReady,    setPreviewReady]     = useState(false);
   const [previewWarning,  setPreviewWarning]   = useState("");
   const [answerFeedback,  setAnswerFeedback]   = useState(null);
-  const [proctorAlert,    setProctorAlert]     = useState("");
-  const [selectedTtsVoice, setSelectedTtsVoice] = useState(() => {
-    const saved = sessionStorage.getItem(`interview-tts-voice:${resultId}`);
-    return saved || "male";
-  });
+  const [proctorAlert, setProctorAlert] = useState("");
 
   const selectedVoice = (() => {
     const saved = sessionStorage.getItem(`interview-voice:${resultId}`);
@@ -218,7 +179,7 @@ export default function Interview() {
   const answerStartTimeRef   = useRef(null);
 
   // ── TTS ────────────────────────────────────────────────────────────────────
-  const { speak, stop: stopSpeaking, speaking, muted, toggleMute, ttsLoading } = useTTS();
+  const { speak, stop: stopSpeaking, speaking, muted, toggleMute } = useTTS();
 
   // ── proctoring ─────────────────────────────────────────────────────────────
   // FIX C2: Pass resultId to useProctoring so tab-switch events go to the correct
@@ -705,7 +666,7 @@ export default function Interview() {
               </h2>
               <button
                 type="button"
-                onClick={() => speaking ? stopSpeaking() : speak(currentQuestion?.text || "", selectedTtsVoice)}
+                onClick={() => speaking ? stopSpeaking() : speak(currentQuestion?.text || "", selectedVoice)}
                 disabled={ttsLoading}
                 title={speaking ? "Stop" : "Read question aloud (Indian accent)"}
                 className={cn(
@@ -903,31 +864,18 @@ export default function Interview() {
                   {speaking ? "Speaking question…" : muted ? "Muted" : "Auto-speak ON"}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={selectedTtsVoice}
-                  onChange={(e) => {
-                    setSelectedTtsVoice(e.target.value);
-                    sessionStorage.setItem(`interview-tts-voice:${resultId}`, e.target.value);
-                  }}
-                  className="bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1"
-                >
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={toggleMute}
-                  className={cn(
-                    "p-1.5 rounded-lg border transition-all",
-                    muted
-                      ? "bg-slate-700 border-slate-600 text-slate-400 hover:text-white"
-                      : "bg-blue-900/30 border-blue-700/50 text-blue-400 hover:bg-blue-900/50"
-                  )}
-                >
-                  {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={toggleMute}
+                className={cn(
+                  "p-1.5 rounded-lg border transition-all",
+                  muted
+                    ? "bg-slate-700 border-slate-600 text-slate-400 hover:text-white"
+                    : "bg-blue-900/30 border-blue-700/50 text-blue-400 hover:bg-blue-900/50"
+                )}
+              >
+                {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              </button>
             </div>
 
             {previewWarning && (
