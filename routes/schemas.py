@@ -37,12 +37,6 @@ class ScheduleInterviewBody(BaseModel):
     interview_time: str | None = None
 
 
-class SetInterviewScheduleBody(BaseModel):
-    result_id: int
-    interview_date: str
-    interview_time: str
-
-
 class InterviewScoreBody(BaseModel):
     result_id: int
     technical_score: float = Field(..., ge=0, le=100)
