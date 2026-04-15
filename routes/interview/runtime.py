@@ -1460,6 +1460,8 @@ def interview_start(
 
 ) -> dict[str, Any]:
 
+    logger.info(f"INTERVIEW_START_DEBUG payload={payload}")
+
     if payload.candidate_id is not None and payload.candidate_id != current_user.user_id:
 
         raise HTTPException(status_code=403, detail="candidate_id does not match logged-in user")
@@ -1475,6 +1477,11 @@ def interview_start(
 
 
     result = _resolve_candidate_result(db, candidate.id, payload.result_id)
+    
+    logger.info(f"INTERVIEW_START_DEBUG result_id={result.id} shortlisted={result.shortlisted} interview_date={result.interview_date}")
+    
+    access = interview_access_state(result)
+    logger.info(f"INTERVIEW_START_DEBUG access_state={access}")
 
     _ensure_interview_ready(result)
 
