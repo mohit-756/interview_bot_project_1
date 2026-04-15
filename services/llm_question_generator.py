@@ -47,12 +47,113 @@ def _is_date_range_string(text: str | None) -> bool:
 
 
 # ============================================================================
-# V2 SYSTEM PROMPT - Strict JSON
+# V2 SYSTEM PROMPT - Natural Flow, Resume-Grounded
 # ============================================================================
 
-LLM_QUESTION_SYSTEM_PROMPT = """You are a Q&A generator. Output ONLY valid JSON with no markdown formatting or explanations. 
-Format: {"questions": [{"text": "...", "type": "...", "focus": "...", "intent": "...", "reference_answer": "..."}]}
-Do NOT include any text before or after the JSON."""
+LLM_QUESTION_SYSTEM_PROMPT = """You are a senior technical interviewer. 
+Generate interview questions that flow naturally, like a real conversation, grounded in the candidate's actual resume, projects, and the job description.
+
+CORE PRINCIPLES
+
+Every question must:
+1. Reference SPECIFIC projects, technologies, or achievements from this resume
+2. Be answerable ONLY by someone who did that exact work
+3. Be clear enough for an interviewer to understand and follow up on
+4. End with exactly ONE question mark
+5. Be conversational, not academic
+
+Never:
+- Ask about skills NOT on the resume or JD
+- Invent project names, company names, or outcomes
+- Use vague phrases like "in your project" or "walk me through"
+- Ask generic questions that fit any candidate (like "What is X?")
+
+WHAT A GOOD QUESTION LOOKS LIKE
+
+✓ Good: "In your Data Pipeline project, you mentioned reducing latency by 40%. What was the bottleneck you identified first?"
+✗ Bad: "Tell me about a challenging project you worked on."
+
+✓ Good: "You built the Admin Dashboard with React. What state management decisions did you make, and why?"
+✗ Bad: "What is your experience with React?"
+
+✓ Good: "You said the Payment Service went down during peak hours. Walk me through what you found in the logs."
+✗ Bad: "How do you handle failures?"
+
+INTERVIEW FLOW (Natural, not rigid)
+
+Think of a real interview:
+1. Opener (1 question): "Tell me about your background and what drew you to this role."
+2. Deep Dive into Strongest Project (2-3 questions): Execution details, decisions, what went wrong
+3. Secondary Project or Adjacent Skill (1-2 questions): Different angle—scaling, debugging, design
+4. Behavioral / Soft Skills (1 question): How you collaborate, handle pressure, make trade-offs
+5. Role-Specific (0-1 question): If design role, ask about system design. If lead, ask about mentoring.
+
+Total: 6-8 questions that feel like a conversation.
+
+DISTRIBUTION (Natural, not forced)
+
+Aim for something like this (out of 8 questions):
+- Opener: 1
+- Project execution: 2-3
+- Decision/trade-off: 1-2
+- Debugging/failure: 1
+- Behavioral/soft skills: 1
+- Role-specific (design/scaling/mentoring): 0-1
+
+This is guidance, not law. If no leadership signals, skip that. If all work in one project, go deep there.
+
+QUESTION CHARACTERISTICS BY TYPE
+
+Opener: Open-ended, conversational, sets tone.
+  Example: "Walk me through your most recent role and what you're looking for next."
+
+Project Execution: Specific to their work, ask about HOW not WHAT.
+  Example: "You reduced latency by 40%. Walk me through what you measured and how."
+
+Decision/Trade-off: Get at their reasoning.
+  Example: "You used PostgreSQL. Why not NoSQL for that use case?"
+
+Debugging/Failure: Shows problem-solving.
+  Example: "The service was down for 2 hours. Walk me through your debugging steps."
+
+Behavioral/Soft Skills: How they work with others.
+  Example: "Tell me about a time you had to push back on a requirement."
+
+Role-Specific: Design/scaling/mentoring (if relevant).
+  Example: "How would you scale that system to 100x users?"
+
+FORMAT (JSON)
+
+Return ONLY valid JSON, no preamble:
+
+{
+  "questions": [
+    {
+      "text": "one question, specific project/outcome from resume",
+      "type": "opener|project|decision|debugging|behavioral|role_specific",
+      "focus": "what you're assessing",
+      "project": "project name from resume (if applicable)",
+      "intent": "why you're asking this",
+      "reference_answer": "what a strong answer would include"
+    }
+  ]
+}
+
+QUALITY CHECKLIST
+
+Before returning, verify:
+- Every question references a REAL project or skill from the resume
+- Could an interviewer understand each question without context?
+- Is each question answerable ONLY by someone who did that work?
+- Does the flow feel natural (not rigid)?
+- Is there behavioral / soft skill coverage?
+- No duplicate concepts or phrasing?
+- Each question has exactly one "?"?
+
+TONE
+
+Professional but conversational. Curious, not interrogating. Technical but accessible.
+Assume the interviewer is smart but may not know all the details of the candidate's project."""
 
 
 @dataclass
@@ -382,28 +483,60 @@ def build_structured_question_input(
 # ============================================================================
 
 def _llm_user_prompt_v2(structured_input: StructuredQuestionInput, question_count: int, retry_note: str | None = None) -> str:
-    """Build prompt with clear structure requirements."""
+    """
+    Build user prompt with evidence snapshot and clear instructions.
+    Focus on: what we know about the candidate, what we want, constraints.
+    """
+    projects = structured_input.resume_projects or []
+    roles = structured_input.resume_recent_roles or []
     skills = structured_input.overlap_skills or []
-    jd_title = structured_input.jd_title or "technical role"
+    impact = structured_input.resume_measurable_impact or []
+    jd_title = structured_input.jd_title or "Role"
     
-    skills_str = ", ".join(skills[:6]) if skills else "Python, SQL, APIs"
+    # Build evidence snapshot (compact, readable)
+    evidence_lines = []
     
-    prompt = f'''Generate {question_count} interview questions for a {jd_title} position.
-
-Required skills to assess: {skills_str}
-
-Requirements:
-- Include 1-2 opener questions about background
-- Include 2-3 technical/project questions about specific work
-- Include 1-2 behavioral questions about challenges/leadership
-- Each question must be specific and grounded in typical resume topics
-- Return ONLY JSON: {{"questions": [{{"text": "...", "type": "...", "focus": "...", "intent": "...", "reference_answer": "..."}}]}}
-- Types: opener, project, decision, debugging, behavioral, role_specific'''
-
+    if projects:
+        evidence_lines.append("CANDIDATE'S PROJECTS:")
+        for p in projects[:5]:
+            evidence_lines.append(f"  • {p}")
+    
+    if roles:
+        evidence_lines.append("\nRECENT ROLES:")
+        for r in roles[:3]:
+            evidence_lines.append(f"  • {r}")
+    
+    if impact:
+        evidence_lines.append("\nMEASURABLE OUTCOMES:")
+        for m in impact[:3]:
+            evidence_lines.append(f"  • {m}")
+    
+    if skills:
+        evidence_lines.append("\nSKILLS (matches JD):")
+        evidence_lines.append(f"  {', '.join(skills[:8])}")
+    
+    evidence_snapshot = "\n".join(evidence_lines)
+    
+    # Build instructions (simple, clear)
+    instructions = [
+        f"Generate exactly {question_count} questions for a {jd_title} interview.",
+        "Ground each question in the candidate's resume projects, roles, or outcomes above.",
+        "Make questions flow naturally—like a real conversation, not an interrogation.",
+        "Include mix: 1 opener, 2-3 technical deep-dives, 1 behavioral, 1-2 role-specific.",
+        "Each question = exactly 1 '?', clear language, 20-100 words.",
+        "Reference specific project names, not 'your project.'",
+        "Don't ask about skills that aren't on the resume above.",
+    ]
+    
     if retry_note:
-        prompt += f"\nNote: {retry_note}"
+        instructions.append(f"\nFEEDBACK FROM FIRST ATTEMPT:\n{retry_note}")
     
-    return prompt
+    return (
+        "=== CANDIDATE EVIDENCE ===\n" 
+        + evidence_snapshot 
+        + "\n\n=== INSTRUCTIONS ===\n" 
+        + "\n".join(instructions)
+    )
 
 
 # ============================================================================
@@ -457,23 +590,80 @@ def _normalize_question_type_v2(raw_type: str | None) -> str:
 # ============================================================================
 
 def _validate_question_set_v2(questions: list[dict[str, Any]], structured_input: StructuredQuestionInput, question_count: int) -> list[str]:
-    """Simple validation - just count and basic format."""
+    """
+    Validate questions for: resume grounding, natural distribution, clarity.
+    Focus on: at least 1 opener, at least 1 behavioral, grounded technical depth.
+    """
     issues: list[str] = []
     
     if len(questions) < max(2, question_count - 2):
         issues.append(f"insufficient_questions: got {len(questions)}, need ~{question_count}")
         return issues
 
-    # Simple checks only - no resume references
-    return issues
+    # Check 1: Every question grounded in resume
+    resume_skills = {_normalize_token(s) for s in (structured_input.resume_skills or [])}
+    resume_projects = {_normalize_token(p) for p in (structured_input.resume_projects or [])}
+    resume_roles = {_normalize_token(r) for r in (structured_input.resume_recent_roles or [])}
+    
+    grounded_count = 0
+    for q in questions:
+        text_norm = _normalize_token(q.get("text", ""))
+        
+        # Check if it mentions a real project, role, or skill
+        is_grounded = (
+            q.get("type") == "opener" or
+            any(proj and proj in text_norm for proj in resume_projects) or
+            any(role and role in text_norm for role in resume_roles) or
+            any(skill and skill in text_norm for skill in resume_skills) or
+            bool(q.get("project"))
+        )
+        if is_grounded:
+            grounded_count += 1
+        elif q.get("type") not in {"behavioral", "opener"}:
+            issues.append(f"question_not_grounded: {q.get('text', '')[:60]}")
 
+    # Check 2: Type distribution (natural, not rigid)
+    type_counts = {}
+    for q in questions:
+        qtype = q.get("type", "project")
+        type_counts[qtype] = type_counts.get(qtype, 0) + 1
 
-def _simple_validate(questions, question_count):
-    """Super simple validation."""
-    issues = []
-    if len(questions) < 2:
-        issues.append("too_few")
-    return issues
+    has_opener = type_counts.get("opener", 0) >= 1
+    has_behavioral = type_counts.get("behavioral", 0) >= 1
+    has_technical = grounded_count >= 1
+
+    if not has_opener and len(questions) > 1:
+        issues.append("missing_opener")
+    if not has_behavioral and len(questions) > 2:
+        issues.append("missing_behavioral")
+    if not has_technical and len(questions) > 1:
+        issues.append("insufficient_technical_grounding")
+
+    # Check 3: No weak phrases or duplicates
+    seen_similarity = set()
+    for q in questions:
+        text = q.get("text", "")
+        
+        weak = ["tell me about yourself", "what is your experience with", "explain what", "what do you think about"]
+        if any(phrase in text.lower() for phrase in weak):
+            issues.append(f"weak_phrase: {text[:50]}")
+        
+        similarity = _similarity_key(text)
+        if similarity in seen_similarity:
+            issues.append("duplicate_question")
+        seen_similarity.add(similarity)
+
+    # Check 4: Question clarity
+    for q in questions:
+        text = q.get("text", "")
+        if text.count("?") != 1:
+            issues.append(f"wrong_question_mark_count: {text[:50]}")
+        if len(text) < 15:
+            issues.append(f"question_too_short: {text}")
+        if len(text) > 150:
+            issues.append(f"question_too_long: {text[:60]}")
+
+    return _dedupe_strings(issues)
 
 
 # ============================================================================
@@ -533,12 +723,12 @@ def _normalize_llm_questions_v2(
 # ============================================================================
 
 def _extract_json_object(raw: str) -> dict[str, Any]:
+    """Extract JSON object from LLM response with multiple fallback strategies."""
     cleaned = _clean_json(raw or "")
     
-    # Find JSON object
+    # Strategy 1: Find JSON object with proper brace matching
     start = cleaned.find("{")
     if start == -1:
-        # Try array format
         start = cleaned.find("[")
         if start == -1:
             raise ValueError("No JSON found in response")
@@ -570,10 +760,40 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
     
     cleaned = cleaned[start:end]
     
-    data = json.loads(cleaned)
-    if not isinstance(data, dict):
-        raise ValueError("LLM response must be a JSON object")
-    return data
+    # Strategy 2: Try direct parse
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list) and len(data) > 0:
+            return {"questions": data}
+    except:
+        pass
+    
+    # Strategy 3: Fix common JSON issues
+    try:
+        # Remove trailing commas
+        cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned)
+        # Remove comments
+        cleaned = re.sub(r'//.*', '', cleaned)
+        cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except:
+        pass
+    
+    # Strategy 4: Extract questions array manually
+    try:
+        match = re.search(r'"questions"\s*:\s*\[([\s\S]*)\]', cleaned)
+        if match:
+            questions_str = "[" + match.group(1) + "]"
+            questions = json.loads(questions_str)
+            return {"questions": questions}
+    except:
+        pass
+    
+    raise ValueError("Could not parse JSON from LLM response")
 
 
 # ============================================================================
