@@ -10,7 +10,6 @@ def build_practice_kit(
     jd_title: str | None,
     jd_skill_scores: dict[str, int] | None,
     question_count: int = 6,
-    exclude_questions: set[str] | None = None,
 ) -> dict[str, object]:
     bundle = build_question_bundle(
         resume_text=resume_text,
@@ -19,30 +18,12 @@ def build_practice_kit(
         question_count=max(4, min(12, int(question_count or 6))),
         project_ratio=0.65,
     )
-    
-    questions = list(bundle["questions"])
-    excluded = exclude_questions or set()
-    
-    filtered_questions = [
-        q for q in questions
-        if (q.get("text") or "").strip().lower() not in excluded
-    ]
-    
-    if len(filtered_questions) < len(questions):
-        additional_needed = len(questions) - len(filtered_questions)
-        additional = [
-            q for q in questions
-            if (q.get("text") or "").strip().lower() in excluded
-        ][:additional_needed]
-        filtered_questions.extend(additional)
-    
     return {
-        "questions": filtered_questions,
+        "questions": list(bundle["questions"]),
         "meta": {
-            "total_questions": int(bundle.get("total_questions", len(bundle.get("questions", [])))),
-            "project_questions_count": int(bundle.get("by_type", {}).get("project", 0)) + int(bundle.get("by_type", {}).get("role_specific", 0)) + int(bundle.get("by_type", {}).get("decision", 0)) + int(bundle.get("by_type", {}).get("debugging", 0)),
-            "theory_questions_count": int(bundle.get("by_type", {}).get("behavioral", 0)) + int(bundle.get("by_type", {}).get("opener", 0)),
-            "projects": bundle.get("projects", []),
-            "excluded_from_interview": len(excluded),
+            "total_questions": int(bundle["total_questions"]),
+            "project_questions_count": int(bundle["project_questions_count"]),
+            "theory_questions_count": int(bundle["theory_questions_count"]),
+            "projects": bundle["projects"],
         },
     }
