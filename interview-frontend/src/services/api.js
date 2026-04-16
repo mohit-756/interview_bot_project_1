@@ -215,6 +215,7 @@ export const candidateApi = {
 // ── HR ───────────────────────────────────────────────────────────────────────
 export const hrApi = {
   dashboard: (jobId) => request({ method: "get", url: "/hr/dashboard", params: jobId ? { job_id: jobId } : undefined }),
+  calendar: (params) => request({ method: "get", url: "/hr/dashboard/calendar", params }),
 
   // JDs
   listJds: () => request({ method: "get", url: "/hr/jds" }),

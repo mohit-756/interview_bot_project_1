@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, UserCheck, UserX, CheckCircle2, Plus, BarChart3, Sparkles, TrendingUp } from "lucide-react";
+import { Users, UserCheck, UserX, CheckCircle2, Plus, Calendar, BarChart3, Sparkles, TrendingUp } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell } from "recharts";
 import MetricCard from "../components/MetricCard";
 import CandidateTable from "../components/CandidateTable";
 import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/PageHeader";
+import CalendarModal from "../components/CalendarModal";
 import { hrApi } from "../services/api";
 
 const CHART_COLORS = ["#2563eb", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#06b6d4"];
@@ -32,6 +33,9 @@ export default function HRDashboardPage() {
   const [tableLoading, setTableLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState("");
   const [tableError, setTableError] = useState("");
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarData, setCalendarData] = useState(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
 
   const overview = dashboard?.analytics?.overview || {};
   const pipeline = dashboard?.analytics?.pipeline ?? EMPTY_LIST;
@@ -77,10 +81,28 @@ export default function HRDashboardPage() {
       await hrApi.deleteCandidate(candidate.uid || candidate.candidate_uid);
       await loadCandidates();
       await loadDashboard();
+      if (calendarData) loadCalendarData();
     } catch (deleteError) {
       setDashboardError(deleteError.message);
     }
   }
+
+  const loadCalendarData = useCallback(async () => {
+    setCalendarLoading(true);
+    try {
+      const response = await hrApi.calendar();
+      setCalendarData(response);
+    } catch (e) {
+      console.error("Calendar load error:", e);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, []);
+
+  const handleOpenCalendar = async () => {
+    setShowCalendar(true);
+    if (!calendarData) await loadCalendarData();
+  };
 
   function handleScheduleCandidate(candidate) {
     navigate(`/hr/candidates/${candidate.uid || candidate.candidate_uid}`);
@@ -101,6 +123,10 @@ export default function HRDashboardPage() {
           <>
             <button type="button" onClick={() => navigate("/hr/compare")} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">
               Compare Candidates
+            </button>
+            <button type="button" onClick={handleOpenCalendar} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center gap-2">
+              <Calendar size={18} />
+              <span>Calendar</span>
             </button>
             <button type="button" onClick={() => navigate("/hr/candidates")} className="bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white px-5 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition-all shadow-lg shadow-blue-200 dark:shadow-blue-900/30">
               <Plus size={20} />
@@ -127,15 +153,6 @@ export default function HRDashboardPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <ChartCard title="Hiring Funnel" subtitle="Applied → shortlisted → interview completed → selected" accent="blue">
               {!chartReadyFunnel.length ? <div className="text-center py-12 text-slate-500 dark:text-slate-400">No funnel data yet</div> : <div className="ats-chart-box tall"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartReadyFunnel} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis type="number" /><YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} /><Tooltip /><Bar dataKey="value" fill="#2563eb" radius={[0, 8, 8, 0]} /></BarChart></ResponsiveContainer></div>}
-            </ChartCard>
-
-            <ChartCard title="Selection Quality" subtitle="Core ATS conversion indicators" accent="purple">
-              <div className="metric-grid compact">
-                <MetricCard title="Avg Score" value={`${Math.round(Number(overview.avg_interview_score || 0))}%`} icon={BarChart3} color="purple" />
-                <MetricCard title="Selection Rate" value={`${Math.round(Number(overview.selection_rate || 0))}%`} icon={Sparkles} color="blue" />
-                <MetricCard title="Interview Success" value={`${Math.round(Number(overview.interview_success_rate || 0))}%`} icon={TrendingUp} color="green" />
-                <MetricCard title="Interview Completion" value={`${Math.round(Number(overview.interview_completion_rate || 0))}%`} icon={CheckCircle2} color="yellow" />
-              </div>
             </ChartCard>
           </div>
 
@@ -173,41 +190,11 @@ export default function HRDashboardPage() {
         </div>
 
         <div className="space-y-6">
-          <ChartCard title="Pipeline Breakdown" subtitle="Stage-wise application distribution" accent="yellow">
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-              {pipeline.length ? pipeline.map((item) => (
-                <div key={item.key} className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                  <div className="flex items-center gap-2"><StatusBadge status={item} /><span className="text-sm text-slate-500 dark:text-slate-400">{item.label}</span></div>
-                  <span className="text-sm font-bold text-slate-900 dark:text-white">{item.count}</span>
-                </div>
-              )) : <div className="text-center py-8 text-slate-500 dark:text-slate-400">No pipeline data</div>}
-            </div>
-          </ChartCard>
-
           <ChartCard title="Top Skills Distribution" subtitle="Most frequently matched skills across current candidates">
             {!chartReadySkills.length ? <div className="text-center py-8 text-slate-500 dark:text-slate-400">No skill data</div> : <>
               <div className="ats-chart-box"><ResponsiveContainer width="100%" height="100%"><PieChart><Tooltip /><Pie data={chartReadySkills} dataKey="count" nameKey="skill" outerRadius={80} innerRadius={40}>{chartReadySkills.map((entry) => <Cell key={entry.skill} fill={entry.fill} />)}</Pie></PieChart></ResponsiveContainer></div>
               <div className="space-y-2 mt-3 max-h-[200px] overflow-y-auto pr-2">{chartReadySkills.map((item) => <div key={item.skill} className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-800/40 px-3 py-2"><span className="text-sm font-medium text-slate-700 dark:text-slate-300">{item.skill}</span><span className="text-sm font-bold text-slate-900 dark:text-white">{item.count}</span></div>)}</div>
             </>}
-          </ChartCard>
-
-          <ChartCard title="Recommendation Highlights" subtitle="Top AI-recommended applications">
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-              {(dashboard?.analytics?.top_ranked_candidates || []).length ? dashboard.analytics.top_ranked_candidates.map((item) => {
-                const score = Math.round(Number(item.final_score || 0));
-                return (
-                  <div key={item.result_id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 card-hover-lift">
-                    <p className="font-bold text-slate-900 dark:text-white">{item.candidate_name}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{item.job_title || "JD"}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{item.recommendation || "N/A"}</p>
-                    <div className="mt-2 flex items-center gap-3">
-                      <p className="text-xs font-black text-blue-600">{score}%</p>
-                      <div className="score-bar flex-1"><div className={`score-bar-fill ${score >= 80 ? "green" : score >= 65 ? "blue" : "red"}`} style={{ width: `${score}%` }} /></div>
-                    </div>
-                  </div>
-                );
-              }) : <div className="text-center py-8 text-slate-500 dark:text-slate-400">No recommendations yet</div>}
-            </div>
           </ChartCard>
         </div>
       </div>
@@ -215,6 +202,8 @@ export default function HRDashboardPage() {
       <ChartCard title="Recent Candidates" subtitle="ATS list view preview with ranking and recommendations.">
         {tableLoading ? <p className="center muted py-8">Loading candidates...</p> : <CandidateTable candidates={candidatesData?.candidates || []} onDeleteCandidate={handleDeleteCandidate} onScheduleCandidate={handleScheduleCandidate} />}
       </ChartCard>
+
+      <CalendarModal isOpen={showCalendar} onClose={() => setShowCalendar(false)} calendarData={calendarData} loading={calendarLoading} />
     </div>
   );
 }

@@ -551,7 +551,78 @@ def hr_dashboard(
     }
 
 
-# 1) What this does: returns the paginated HR candidate manager list.
+# ── HR Dashboard Calendar ─────────────────────────────────────────────────────
+@router.get("/hr/dashboard/calendar")
+def hr_dashboard_calendar(
+    month: int | None = None,
+    year: int | None = None,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    from datetime import datetime, timedelta
+    from sqlalchemy import and_
+    
+    if not month:
+        month = datetime.now().month
+    if not year:
+        year = datetime.now().year
+    
+    start_date = datetime(year, month, 1)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        end_date = datetime(year, month + 1, 1) - timedelta(days=1)
+    
+    results = (
+        db.query(Result)
+        .join(JobDescription, Result.job_id == JobDescription.id)
+        .filter(
+            JobDescription.company_id == current_user.user_id,
+            Result.interview_datetime.isnot(None),
+            Result.interview_datetime >= start_date,
+            Result.interview_datetime <= end_date + timedelta(days=1),
+        )
+        .all()
+    )
+    
+    date_map = {}
+    for result in results:
+        candidate = result.candidate
+        job = result.job
+        
+        if not candidate or not job:
+            continue
+        
+        date_key = result.interview_datetime.strftime("%Y-%m-%d")
+        
+        status = "scheduled"
+        if result.shortlisted and result.interview_date:
+            sessions = result.sessions or []
+            completed = any((s.ended_at or s.status == "completed") for s in sessions)
+            if completed:
+                status = "completed"
+            else:
+                status = "scheduled"
+        
+        if date_key not in date_map:
+            date_map[date_key] = {"completed": 0, "scheduled": 0, "new": 0, "candidates": []}
+        
+        if status == "completed":
+            date_map[date_key]["completed"] += 1
+        else:
+            date_map[date_key]["scheduled"] += 1
+        
+        date_map[date_key]["candidates"].append({
+            "result_id": result.id,
+            "candidate_id": candidate.id,
+            "candidate_uid": candidate.candidate_uid,
+            "name": candidate.name,
+            "job_title": job.jd_title or job.title or "JD",
+            "status": status,
+            "score": float(result.final_score or result.score or 0),
+        })
+    
+    return {"ok": True, "dates": date_map}
 # 2) Why needed: supports search, filter, sorting, and paging in one API.
 # 3) How it works: builds summaries, filters them in memory, then slices the requested page.
 @router.get("/hr/candidates")
