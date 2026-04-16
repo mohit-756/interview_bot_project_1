@@ -19,7 +19,6 @@ import HRProctoringPage from "./pages/HRProctoringPage";
 import HRPipelinePage from "./pages/HRPipelinePage";
 import CandidateComparisonPage from "./pages/CandidateComparisonPage";
 import CandidateDashboardPage from "./pages/CandidateDashboardPage";
-import PracticeInterviewPage from "./pages/PracticeInterviewPage";
 import PreCheck from "./pages/PreCheck";
 import Interview from "./pages/Interview";
 import Completed from "./pages/Completed";
@@ -89,7 +88,6 @@ export default function App() {
       <Route element={<ProtectedRoute role="candidate" />}>
         <Route element={<DashboardLayout />}>
           <Route path="/candidate" element={<CandidateDashboardPage />} />
-          <Route path="/candidate/practice" element={<PracticeInterviewPage />} />
           <Route path="/interview/result" element={<FinalResultPage />} />
         </Route>
       </Route>

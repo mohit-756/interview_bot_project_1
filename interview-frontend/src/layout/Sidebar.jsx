@@ -27,7 +27,6 @@ export default function Sidebar({ isOpen = true, onClose }) {
 
   const candidateLinks = [
     { name: "Dashboard", path: "/candidate", icon: LayoutDashboard },
-    { name: "Practice",  path: "/candidate/practice", icon: MessageSquare },
     { name: "Settings",  path: "/settings", icon: Settings },
   ];
 
