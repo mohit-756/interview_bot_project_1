@@ -574,7 +574,7 @@ def candidate_practice_kit(
         existing_questions = set()
         result = db.query(Result).filter(
             Result.candidate_id == candidate.id,
-            Result.jd_id == selected_jd_id,
+            Result.job_id == selected_jd_id,
             Result.interview_questions.isnot(None)
         ).first()
         if result and result.interview_questions:
