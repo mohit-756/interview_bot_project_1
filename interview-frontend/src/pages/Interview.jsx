@@ -14,6 +14,7 @@ import { useProctoring } from "../hooks/useProctoring";
 function useTTS() {
   const [muted, setMuted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [loading, setLoading] = useState(false);
   const audioRef = useRef(null);
 
   const speak = useCallback((text, voiceType = "indian_female") => {
@@ -32,15 +33,16 @@ function useTTS() {
 
     if (!window.speechSynthesis) return;
 
+    setLoading(true);
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-IN";
     utterance.rate = 0.88;
     utterance.pitch = 1.05;
     utterance.volume = 1;
 
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+    utterance.onstart = () => { setSpeaking(true); setLoading(false); };
+    utterance.onend = () => { setSpeaking(false); setLoading(false); };
+    utterance.onerror = () => { setSpeaking(false); setLoading(false); };
 
     window.speechSynthesis.speak(utterance);
   }, [muted]);
@@ -54,6 +56,7 @@ function useTTS() {
       window.speechSynthesis.cancel();
     }
     setSpeaking(false);
+    setLoading(false);
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -73,7 +76,7 @@ function useTTS() {
     };
   }, []);
 
-  return { speak, stop, speaking, muted, toggleMute };
+  return { speak, stop, speaking, muted, toggleMute, loading };
 }
 
 // ── tiny helpers ──────────────────────────────────────────────────────────────
@@ -163,6 +166,7 @@ export default function Interview() {
   const [previewWarning,  setPreviewWarning]   = useState("");
   const [answerFeedback,  setAnswerFeedback]   = useState(null);
   const [proctorAlert, setProctorAlert] = useState("");
+  const [ttsLoading, setTtsLoading] = useState(false);
 
   const selectedVoice = (() => {
     const saved = sessionStorage.getItem(`interview-voice:${resultId}`);
