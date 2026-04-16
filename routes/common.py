@@ -234,6 +234,7 @@ def serialize_result(result: Result | None) -> dict[str, object] | None:
         "stage": stage_payload(_application_stage(result, latest_session)),
         "interview_date": result.interview_date,
         "interview_time": result.interview_time,
+        "interview_datetime": result.interview_datetime.isoformat() if result.interview_datetime else None,
         "interview_scheduled": bool(access["interview_scheduled"]),
         "interview_ready": bool(access["interview_ready"]),
         "interview_locked_reason": access["interview_locked_reason"],

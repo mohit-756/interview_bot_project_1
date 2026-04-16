@@ -13,6 +13,7 @@ from ai_engine.phase1.scoring import compute_resume_skill_match
 from ai_engine.phase1.matching import extract_text_from_file
 from database import get_db
 from models import JobDescription, Result
+from core.config import config
 from routes.common import (
     UPLOAD_DIR,
     ensure_candidate_profile,
@@ -29,7 +30,7 @@ from routes.schemas import CandidateSelectJDBody, ScheduleInterviewBody
 from services.practice import build_practice_kit
 from services.resume_advice import build_resume_advice
 
-from utils.email_service import send_interview_email
+from utils.email_service import send_interview_email, send_eligibility_email, send_interview_confirmation_email
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -295,6 +296,33 @@ def upload_resume(
     db.commit()
     db.refresh(result)
 
+    dashboard_url = f"{config.FRONTEND_URL.rstrip('/')}/#/login"
+    try:
+        feedback_items = []
+        if explanation:
+            matched = explanation.get("matched_skills", [])
+            missing = explanation.get("missing_skills", [])
+            if missing:
+                feedback_items.append(f"Consider improving these skills: {', '.join(missing[:5])}")
+            if explanation.get("final_resume_score"):
+                score_val = float(explanation.get("final_resume_score", 0))
+                if score_val < float(selected_jd.qualify_score):
+                    feedback_items.append(f"Resume score ({int(score_val)}%) below required cutoff ({int(selected_jd.qualify_score)}%)")
+        
+        result.eligibility_feedback = "\n".join(feedback_items) if feedback_items else "Your profile did not meet the current requirements"
+        db.commit()
+        
+        send_eligibility_email(
+            to_email=candidate.email,
+            candidate_name=candidate.name or "Candidate",
+            role_title=selected_jd.title or "the position",
+            is_eligible=bool(result.shortlisted),
+            feedback=feedback_items,
+            dashboard_url=dashboard_url
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send eligibility email: {e}")
+
     return {
         "ok": True,
         "message": "Resume uploaded and scoring completed.",
@@ -400,6 +428,33 @@ def upload_resume_s3(
     db.commit()
     db.refresh(result)
 
+    dashboard_url = f"{config.FRONTEND_URL.rstrip('/')}/#/login"
+    try:
+        feedback_items = []
+        if explanation:
+            matched = explanation.get("matched_skills", [])
+            missing = explanation.get("missing_skills", [])
+            if missing:
+                feedback_items.append(f"Consider improving these skills: {', '.join(missing[:5])}")
+            if explanation.get("final_resume_score"):
+                score_val = float(explanation.get("final_resume_score", 0))
+                if score_val < float(selected_jd.qualify_score):
+                    feedback_items.append(f"Resume score ({int(score_val)}%) below required cutoff ({int(selected_jd.qualify_score)}%)")
+        
+        result.eligibility_feedback = "\n".join(feedback_items) if feedback_items else "Your profile did not meet the current requirements"
+        db.commit()
+        
+        send_eligibility_email(
+            to_email=candidate.email,
+            candidate_name=candidate.name or "Candidate",
+            role_title=selected_jd.title or "the position",
+            is_eligible=bool(result.shortlisted),
+            feedback=feedback_items,
+            dashboard_url=dashboard_url
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send eligibility email: {e}")
+
     return {
         "ok": True,
         "message": "Resume uploaded and scoring completed.",
@@ -446,20 +501,44 @@ def select_interview_date(
     if not result.shortlisted:
         raise HTTPException(status_code=400, detail="Interview can be scheduled only for shortlisted result")
 
+    is_reschedule = bool(result.interview_date)
+
     result.interview_token = None
     result.interview_date = payload.interview_date.strip()
     if payload.interview_time:
         result.interview_time = payload.interview_time.strip()
     result.interview_link = interview_entry_url(result.id)
+    
+    from datetime import datetime
+    try:
+        result.interview_datetime = datetime.fromisoformat(payload.interview_date.strip())
+    except:
+        result.interview_datetime = None
+    
+    if is_reschedule:
+        result.interview_rescheduled_count = (result.interview_rescheduled_count or 0) + 1
+    
+    result.reminder_24h_sent = False
+    result.reminder_1h_sent = False
     db.commit()
 
     candidate = get_candidate_or_404(db, current_user.user_id)
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    role_title = job.title if job else "the position"
+    
     email_sent = True
-    message = "Interview link sent to your registered email."
+    message = "Interview scheduled. Confirmation sent to your email."
     try:
-        interview_datetime = f"{result.interview_date}" + (f" at {result.interview_time}" if result.interview_time else "")
-        send_interview_email(candidate.email, candidate.name, interview_datetime, result.interview_link)
-    except Exception:
+        send_interview_confirmation_email(
+            to_email=candidate.email,
+            candidate_name=candidate.name or "Candidate",
+            role_title=role_title,
+            interview_datetime=result.interview_datetime or result.interview_date,
+            interview_link=result.interview_link,
+            is_reschedule=is_reschedule
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send interview confirmation email: {e}")
         email_sent = False
         message = "Interview scheduled, but email delivery failed."
 

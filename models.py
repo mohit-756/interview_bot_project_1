@@ -116,10 +116,15 @@ class Result(Base):
     explanation = Column(JSON)  # resume scorecard only going forward
     interview_date = Column(String, nullable=True)
     interview_time = Column(String, nullable=True)
+    interview_datetime = Column(DateTime, nullable=True)
     interview_link = Column(String, nullable=True)
     interview_questions = Column(JSON, nullable=True)
     interview_token = Column(String, nullable=True)
     events_json = Column(JSON, nullable=True)
+    reminder_24h_sent = Column(Boolean, default=False, nullable=True)
+    reminder_1h_sent = Column(Boolean, default=False, nullable=True)
+    interview_rescheduled_count = Column(Integer, default=0, nullable=True)
+    eligibility_feedback = Column(Text, nullable=True)
     # NOTE: ATS pipeline state and final ranking values live on the application row.
     stage = Column(String(50), default="applied", nullable=False, index=True)
     stage_updated_at = Column(DateTime, default=datetime.utcnow, nullable=True)
