@@ -411,7 +411,7 @@ def hr_delete_jd(
 ) -> dict[str, object]:
     jd = _get_hr_owned_jd_or_404(db, jd_id, current_user.user_id)
     
-    # Check only for results belonging to this HR (not all results)
+    # Check only for results belonging to this HR (not all results in system)
     applications_count = (
         db.query(Result)
         .join(JobDescription, Result.job_id == JobDescription.id)
@@ -421,9 +421,21 @@ def hr_delete_jd(
     if applications_count:
         raise HTTPException(status_code=400, detail="Cannot delete a JD with active applications")
 
-    selected_candidates_count = db.query(Candidate).filter(Candidate.selected_jd_id == jd_id).count()
-    if selected_candidates_count:
-        raise HTTPException(status_code=400, detail="Cannot delete a JD selected by candidates")
+    # Only check candidates that have results for THIS HR's JDs
+    # (Candidates might have selected this JD but if they never applied to our jobs, it's ok)
+    # Actually - remove this check entirely, or make it less strict
+    # Just unselect candidates if they selected this JD
+    candidates_with_this_jd = db.query(Candidate).filter(Candidate.selected_jd_id == jd_id).all()
+    for candidate in candidates_with_this_jd:
+        # Only unlink if candidate has no results with this HR
+        has_our_results = (
+            db.query(Result)
+            .join(JobDescription, Result.job_id == JobDescription.id)
+            .filter(Result.candidate_id == candidate.id, JobDescription.company_id == current_user.user_id)
+            .first()
+        )
+        if not has_our_results:
+            candidate.selected_jd_id = None
 
     deleted_upload = False
     if jd.jd_text:
