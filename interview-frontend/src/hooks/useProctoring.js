@@ -5,8 +5,7 @@
  *
  * Features (all run asynchronously, none block the UI thread):
  *   1. Tab-switch detection   — visibilitychange event
- *   2. Emotion detection      — lightweight heuristic from face geometry via
- *                               canvas pixel sampling (NO heavy ML model).
+ *   2. Face quality detection — brightness/texture heuristic for face clarity
  *                               Runs every 4 s, auto-disabled if FPS < 20.
  *   3. Voice confidence       — pure heuristic on transcript text:
  *                               speaking rate, filler words, sentence fragmentation.
@@ -15,7 +14,7 @@
  * existing proctorApi.uploadFrame / interviewApi event endpoints.
  *
  * Usage:
- *   const { proctoringEvents, voiceMetrics } = useProctoring({
+ *   const { proctoringEvents, voiceMetrics, faceQualitySignal } = useProctoring({
  *     sessionId,
  *     videoRef,
  *     enabled: true,
@@ -38,10 +37,10 @@ const FILLER_WORDS = [
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/** Estimate emotion from average brightness + variance of the face region.
+/** Estimate face quality from brightness and variance of the face region.
  *  Not ML — just a brightness/texture heuristic that's near-zero CPU cost.
- *  Returns { emotion, confidence } */
-function estimateEmotionFromFrame(videoEl) {
+ *  Returns { quality, clarity, lighting } */
+function estimateFaceQualityFromFrame(videoEl) {
   try {
     if (!videoEl || videoEl.videoWidth === 0) return null;
     const W = 80, H = 80; // tiny canvas for speed
@@ -61,21 +60,32 @@ function estimateEmotionFromFrame(videoEl) {
     const variance = sumSq / n - mean * mean;
     const stddev = Math.sqrt(Math.max(0, variance));
 
-    // Heuristic rules derived from typical webcam characteristics:
-    // High brightness + high variance → animated / expressive (confident)
-    // Low brightness + low variance  → under-lit / nervous
-    // Mid brightness + low variance  → neutral
-    let emotion, confidence;
-    if (mean > 140 && stddev > 40) {
-      emotion = "confident"; confidence = Math.min(0.9, 0.6 + stddev / 200);
+    // Face quality estimation from brightness and clarity:
+    // Good lighting (100-180 mean), clear features (high stddev from edges)
+    // Quality: 0-1 score based on lighting and clarity
+    let overall, lighting, clarity;
+    if (mean >= 100 && mean <= 180 && stddev >= 25) {
+      overall = Math.min(0.95, 0.5 + stddev / 150);
+      lighting = 0.85;
+      clarity = Math.min(0.9, stddev / 80);
     } else if (mean < 80) {
-      emotion = "nervous";   confidence = Math.min(0.8, 0.5 + (80 - mean) / 160);
-    } else if (stddev < 20) {
-      emotion = "neutral";   confidence = 0.7;
+      overall = 0.35;
+      lighting = 0.4;
+      clarity = 0.3;
+    } else if (mean > 180) {
+      overall = 0.45;
+      lighting = 0.5;
+      clarity = 0.4;
     } else {
-      emotion = "focused";   confidence = 0.65;
+      overall = 0.55;
+      lighting = 0.65;
+      clarity = 0.5;
     }
-    return { emotion, confidence: parseFloat(confidence.toFixed(2)) };
+    return { 
+      quality: parseFloat(overall.toFixed(2)), 
+      clarity: parseFloat(clarity.toFixed(2)),
+      lighting: parseFloat(lighting.toFixed(2))
+    };
   } catch {
     return null;
   }
@@ -173,7 +183,7 @@ export function useProctoring({ sessionId, resultId, videoRef, enabled = true })
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [enabled, sessionId, resultId, pushEvent]);
 
-  // ── 2. EMOTION DETECTION (lightweight, auto-disables on low FPS) ──────────
+  // ── 2. FACE QUALITY DETECTION (lightweight, auto-disables on low FPS) ──────────
   useEffect(() => {
     if (!enabled || !sessionId) return;
 
@@ -186,7 +196,7 @@ export function useProctoring({ sessionId, resultId, videoRef, enabled = true })
     };
     rafRef.current = requestAnimationFrame(tick);
 
-    // Check FPS every 2 s, disable emotion if too low
+    // Check FPS every 2 s, disable face quality if too low
     fpsTimerRef.current = setInterval(() => {
       const now = Date.now();
       const elapsed = (now - lastFpsCheckRef.current) / 1000;
@@ -217,11 +227,12 @@ export function useProctoring({ sessionId, resultId, videoRef, enabled = true })
       // Run in a setTimeout so it never blocks the render loop
       setTimeout(() => {
         const video = videoRef?.current;
-        const result = estimateEmotionFromFrame(video);
+        // Now using face quality instead of emotion
+        const result = estimateFaceQualityFromFrame(video);
         if (!result) return;
 
         setEmotionSignal(result);
-        pushEvent({ type: "EMOTION", ...result });
+        pushEvent({ type: "FACE_QUALITY", ...result });
       }, 0);
     }, EMOTION_INTERVAL_MS);
 

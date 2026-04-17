@@ -56,7 +56,7 @@ from routes.interview.evaluation import run_evaluation_task
 
 
 
-from utils.proctoring_cv import analyze_frame, compare_signatures, should_store_periodic
+from utils.proctoring_cv import analyze_frame, compare_signatures, should_store_periodic, save_baseline_image
 
 from utils.s3_utils import upload_proctor_image
 
@@ -78,11 +78,11 @@ PROCTOR_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 
-HIGH_MOTION_THRESHOLD = 0.20
+HIGH_MOTION_THRESHOLD = 0.25
 
-FACE_MISMATCH_THRESHOLD = 0.78
+FACE_MISMATCH_THRESHOLD = 0.70
 
-SHOULDER_MIN_THRESHOLD = 0.55
+SHOULDER_MIN_THRESHOLD = 0.50
 
 PERIODIC_SAVE_SECONDS = 10
 
@@ -2474,6 +2474,8 @@ def upload_proctor_frame(
 
 
     raw = file.file.read()
+    
+    image_quality_score = None
 
     frame = analyze_frame(session.id, raw)
 
@@ -2508,6 +2510,9 @@ def upload_proctor_frame(
     shoulder_score_raw = _float_or_none(frame.get("shoulder_score"))
 
     upper_bodies_count = int(frame.get("upper_bodies_count") or 0)
+    
+    image_quality_score = _float_or_none(frame.get("face_quality_score"))
+    mediapipe_enabled = bool(frame.get("mediapipe_enabled"))
 
 
 
@@ -2610,6 +2615,10 @@ def upload_proctor_frame(
                 session.baseline_face_signature = json.dumps(current_signature)
 
                 session.baseline_face_captured_at = now
+
+                baseline_image_path = save_baseline_image(session.id, raw)
+                if baseline_image_path:
+                    session.baseline_image_path = baseline_image_path
 
                 baseline_ready = True
 

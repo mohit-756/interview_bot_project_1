@@ -231,6 +231,12 @@ export default function PreCheck() {
     setStarting(true);
     setError("");
     try {
+      // Auto fullscreen for exam mode
+      if (document.documentElement.requestFullscreen) {
+        try {
+          await document.documentElement.requestFullscreen();
+        } catch {}
+      }
       await interviewApi.access(Number(resultId));
       sessionStorage.setItem(`interview-consent:${resultId}`, "true");
       navigate(`/interview/${resultId}/live`);
