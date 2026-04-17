@@ -56,7 +56,7 @@ from routes.interview.evaluation import run_evaluation_task
 
 
 
-from utils.proctoring_cv import analyze_frame, compare_signatures, should_store_periodic, save_baseline_image
+from utils.proctoring_cv import analyze_frame, compare_signatures, should_store_periodic
 
 from utils.s3_utils import upload_proctor_image
 
@@ -2610,10 +2610,6 @@ def upload_proctor_frame(
                 session.baseline_face_signature = json.dumps(current_signature)
 
                 session.baseline_face_captured_at = now
-
-                baseline_image_path = save_baseline_image(session.id, raw)
-                if baseline_image_path:
-                    session.baseline_image_path = baseline_image_path
 
                 baseline_ready = True
 

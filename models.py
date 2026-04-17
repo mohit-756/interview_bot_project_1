@@ -162,7 +162,6 @@ class InterviewSession(Base):
     max_questions = Column(Integer, default=8, nullable=False)
     baseline_face_signature = Column(Text, nullable=True)
     baseline_face_captured_at = Column(DateTime, nullable=True)
-    baseline_image_path = Column(String(500), nullable=True)
     consent_given = Column(Boolean, default=False, nullable=False)
     warning_count = Column(Integer, default=0, nullable=False)
     consecutive_violation_frames = Column(Integer, default=0, nullable=False)
