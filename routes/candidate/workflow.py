@@ -13,7 +13,7 @@ from services.question_generation import build_question_bundle
 from ai_engine.phase1.scoring import compute_resume_skill_match
 from ai_engine.phase1.matching import extract_text_from_file
 from database import get_db
-from models import JobDescription, Result
+from models import InterviewSession, JobDescription, Result
 from core.config import config
 from routes.common import (
     UPLOAD_DIR,
@@ -529,6 +529,20 @@ def select_interview_date(
     
     if is_reschedule:
         result.interview_rescheduled_count = (result.interview_rescheduled_count or 0) + 1
+
+    # If a stale active session exists, it can bypass fresh schedule-window checks.
+    # Mark it abandoned whenever candidate sets a new interview datetime.
+    stale_active_sessions = (
+        db.query(InterviewSession)
+        .filter(
+            InterviewSession.result_id == result.id,
+            InterviewSession.candidate_id == current_user.user_id,
+            InterviewSession.status == "in_progress",
+        )
+        .all()
+    )
+    for session in stale_active_sessions:
+        session.status = "abandoned"
     
     result.reminder_24h_sent = False
     result.reminder_1h_sent = False
