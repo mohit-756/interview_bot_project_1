@@ -13,6 +13,9 @@ function routeFromInterviewLink(interviewLink) {
     if (url.hash && url.hash.startsWith("#/")) {
       path = url.hash.replace(/^#/, "");
     }
+    if (url.search) {
+      path = `${path}${url.search}`;
+    }
     console.log("[ROUTE] interviewLink:", interviewLink, "-> route:", path);
     return path;
   } catch (e) {

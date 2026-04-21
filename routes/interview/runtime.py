@@ -43,8 +43,7 @@ from models import (
     Result,
 )
 
-from routes.common import interview_access_state, interview_entry_url
-
+from routes.common import interview_access_state, interview_entry_url, interview_schedule_state
 from routes.dependencies import SessionUser, require_role
 
 from services.pipeline import record_stage_change
@@ -644,8 +643,10 @@ def _ensure_interview_ready(result: Result) -> None:
         raise HTTPException(status_code=400, detail="Interview session has already been submitted")
 
     if access["interview_locked_reason"] == "scheduled_for_future":
-        # Allow starting early if the interview is scheduled for future
-        return
+        raise HTTPException(status_code=403, detail="Interview can be started only within the allowed start window")
+
+    if access["interview_locked_reason"] == "start_window_expired":
+        raise HTTPException(status_code=403, detail="Interview start window has expired. Please reschedule.")
 
     raise HTTPException(status_code=400, detail="Schedule your interview before starting")
 
@@ -673,7 +674,7 @@ def _resolve_result_by_token(db: Session, candidate_id: int, token: str) -> Resu
 
         by_id = query.filter(Result.id == int(token_value)).first()
 
-        if by_id:
+        if by_id and not (by_id.interview_token or "").strip():
 
             return by_id
 
@@ -1491,12 +1492,56 @@ def interview_access(
 
         "interview_locked_reason": access["interview_locked_reason"],
 
+        "interview_datetime_utc": schedule["scheduled_utc"].isoformat() if schedule["scheduled_utc"] else None,
+
+        "interview_window_open_utc": schedule["window_open_utc"].isoformat() if schedule["window_open_utc"] else None,
+
+        "interview_window_close_utc": schedule["window_close_utc"].isoformat() if schedule["window_close_utc"] else None,
+
+        "can_start_now": bool(schedule["can_start_now"]),
+
         "latest_session_status": str(getattr(latest_session, "status", "") or "").strip().lower() or None,
 
         "question_count": len(questions),
 
         "resume_jd_evaluation": resume_jd_eval,
 
+    }
+
+
+
+
+@router.get("/interview/{result_id}/recheck")
+def interview_recheck(
+    result_id: int,
+    current_user: SessionUser = Depends(require_role("candidate")),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    candidate = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    result = _resolve_candidate_result(db, candidate.id, result_id)
+    access = interview_access_state(result)
+    schedule = interview_schedule_state(result)
+
+    return {
+        "ok": True,
+        "result_id": result.id,
+        "interview_ready": bool(access["interview_ready"]),
+        "interview_locked_reason": access["interview_locked_reason"],
+        "scheduled_utc": schedule["scheduled_utc"].isoformat() if schedule["scheduled_utc"] else None,
+        "window_open_utc": schedule["window_open_utc"].isoformat() if schedule["window_open_utc"] else None,
+        "window_close_utc": schedule["window_close_utc"].isoformat() if schedule["window_close_utc"] else None,
+        "can_start_now": bool(schedule["can_start_now"]),
+        "has_interview_link": bool((result.interview_link or "").strip()),
+        "has_secure_token": bool((result.interview_token or "").strip()),
+        "recommended_checks": [
+            "camera_permission",
+            "microphone_permission",
+            "network_stability",
+            "browser_tab_focus",
+        ],
     }
 
 
@@ -1514,12 +1559,10 @@ def interview_start(
     db: Session = Depends(get_db),
 
 ) -> dict[str, Any]:
-    
-    import sys
-    print(f"DEBUG: interview_start called with payload={payload}", flush=True)
-    sys.stdout.flush()
-    
-    logger.info(f"INTERVIEW_START_DEBUG payload result_id={payload.result_id} consent={payload.consent_given}")
+    logger.info("interview_start payload_result_id=%s consent=%s", payload.result_id, payload.consent_given)
+
+    if payload.result_id is None:
+        raise HTTPException(status_code=400, detail="result_id is required")
 
     if payload.candidate_id is not None and payload.candidate_id != current_user.user_id:
 
@@ -1536,13 +1579,12 @@ def interview_start(
 
 
     result = _resolve_candidate_result(db, candidate.id, payload.result_id)
-    
-    print(f"DEBUG: result found id={result.id} shortlisted={result.shortlisted} interview_date={result.interview_date}", flush=True)
-    logger.info(f"INTERVIEW_START_DEBUG result_id={result.id} shortlisted={result.shortlisted} interview_date={result.interview_date}")
-    
-    access = interview_access_state(result)
-    print(f"DEBUG: access state={access}", flush=True)
-    logger.info(f"INTERVIEW_START_DEBUG access_state={access}")
+
+    if payload.interview_token:
+        provided = (payload.interview_token or "").strip()
+        expected = (result.interview_token or "").strip()
+        if expected and provided != expected:
+            raise HTTPException(status_code=403, detail="Interview link token is invalid")
 
     _ensure_interview_ready(result)
 

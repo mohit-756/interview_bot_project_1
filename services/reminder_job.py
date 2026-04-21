@@ -1,6 +1,7 @@
 """Background job for sending interview reminders."""
 
 import logging
+import secrets
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -32,6 +33,12 @@ def process_reminders():
         for result in results:
             if not result.interview_datetime:
                 continue
+
+            if not (result.interview_token or "").strip():
+                result.interview_token = secrets.token_urlsafe(24)
+
+            if not (result.interview_link or "").strip():
+                result.interview_link = interview_entry_url(result.id, result.interview_token)
             
             candidate = db.query(Candidate).filter(Candidate.id == result.candidate_id).first()
             job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
@@ -42,7 +49,8 @@ def process_reminders():
             time_diff = result.interview_datetime - now
             hours_until = time_diff.total_seconds() / 3600
             
-            if hours_until <= 24 and hours_until > 23 and not result.reminder_24h_sent:
+            # Wider windows make reminders reliable even when cron drifts by a few minutes.
+            if 23.0 <= hours_until <= 25.0 and not result.reminder_24h_sent:
                 try:
                     send_reminder_24h_email(
                         to_email=candidate.email,
@@ -57,7 +65,7 @@ def process_reminders():
                 except Exception as e:
                     logger.error(f"Failed to send 24h reminder to {candidate.email}: {e}")
             
-            elif hours_until <= 1 and hours_until > 0 and not result.reminder_1h_sent:
+            elif 0.5 <= hours_until <= 1.5 and not result.reminder_1h_sent:
                 try:
                     send_reminder_1h_email(
                         to_email=candidate.email,

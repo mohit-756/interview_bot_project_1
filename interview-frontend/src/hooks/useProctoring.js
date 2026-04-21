@@ -133,7 +133,7 @@ function analyseVoiceConfidence(transcript, durationSeconds) {
 }
 
 // ── main hook ─────────────────────────────────────────────────────────────────
-export function useProctoring({ sessionId, resultId, videoRef, enabled = true }) {
+export function useProctoring({ sessionId, resultId, interviewToken, videoRef, enabled = true }) {
   const [proctoringEvents, setProctoringEvents] = useState([]);
   const [voiceMetrics, setVoiceMetrics]         = useState(null);
   const [emotionSignal, setEmotionSignal]        = useState(null);
@@ -162,7 +162,7 @@ export function useProctoring({ sessionId, resultId, videoRef, enabled = true })
         const event = { type: "TAB_SWITCH", detail: "Candidate switched browser tab" };
         pushEvent(event);
         // Use resultId (token) for the event endpoint — falls back to sessionId if resultId is missing.
-        const eventTargetId = resultId || sessionId;
+        const eventTargetId = interviewToken || resultId || sessionId;
         if (eventTargetId) {
           fetch(`/api/interview/${eventTargetId}/event`, {
             method: "POST",
@@ -181,7 +181,7 @@ export function useProctoring({ sessionId, resultId, videoRef, enabled = true })
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [enabled, sessionId, resultId, pushEvent]);
+  }, [enabled, sessionId, resultId, interviewToken, pushEvent]);
 
   // ── 2. FACE QUALITY DETECTION (lightweight, auto-disables on low FPS) ──────────
   useEffect(() => {

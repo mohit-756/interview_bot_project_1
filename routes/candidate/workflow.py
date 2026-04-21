@@ -1,6 +1,7 @@
 """Candidate-facing dashboard and resume workflows."""
 
 import logging
+import secrets
 import shutil
 import uuid
 from pathlib import Path
@@ -22,6 +23,7 @@ from routes.common import (
     interview_entry_url,
     list_active_jds,
     list_available_jobs,
+    parse_interview_datetime_utc,
     serialize_result,
     upsert_result,
 )
@@ -504,17 +506,26 @@ def select_interview_date(
 
     is_reschedule = bool(result.interview_date)
 
-    result.interview_token = None
-    result.interview_date = payload.interview_date.strip()
-    if payload.interview_time:
-        result.interview_time = payload.interview_time.strip()
-    result.interview_link = interview_entry_url(result.id)
-    
-    from datetime import datetime
+    date_raw = payload.interview_date.strip()
+    time_raw = payload.interview_time.strip() if payload.interview_time else ""
+
     try:
-        result.interview_datetime = datetime.fromisoformat(payload.interview_date.strip())
-    except:
-        result.interview_datetime = None
+        interview_dt_utc = parse_interview_datetime_utc(date_raw, time_raw or None)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid interview date/time: {exc}")
+
+    if "T" in date_raw and not time_raw:
+        split_date, split_time = date_raw.split("T", 1)
+        result.interview_date = split_date.strip()
+        result.interview_time = split_time.strip()[:5]
+    else:
+        result.interview_date = date_raw
+        if time_raw:
+            result.interview_time = time_raw[:5]
+
+    result.interview_datetime = interview_dt_utc
+    result.interview_token = secrets.token_urlsafe(24)
+    result.interview_link = interview_entry_url(result.id, result.interview_token)
     
     if is_reschedule:
         result.interview_rescheduled_count = (result.interview_rescheduled_count or 0) + 1

@@ -45,6 +45,7 @@ class InterviewScoreBody(BaseModel):
 class InterviewStartBody(BaseModel):
     candidate_id: int | None = None
     result_id: int | None = None
+    interview_token: str | None = None
     consent_given: bool = False
     per_question_seconds: int = Field(default=60, ge=15, le=600)
     total_time_seconds: int = Field(default=1200, ge=300, le=7200)

@@ -40,6 +40,9 @@ End-to-end AI-assisted interview workflow with a FastAPI backend, a React 19 + V
   - Attempts `sentence-transformers` + `scikit-learn`
   - Falls back to lightweight keyword overlap when optional semantic dependencies are unavailable
 - OpenCV-based proctoring in `utils/proctoring_cv.py`
+- Amazon Polly TTS in `lambda-upload-url.py` (via Lambda + S3)
+  - Supports voice selection: Kajal (Indian Female) and Matthew (US Male)
+  - Voice selector in PreCheck page with test button
 
 ## Repo Layout
 

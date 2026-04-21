@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Mic, MicOff, Send, MessageSquare, CheckCircle2,
   Activity, AlertTriangle, Eye, EyeOff, Brain,
@@ -152,7 +152,9 @@ function TabSwitchAlert({ count }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Interview() {
   const { resultId } = useParams();
+  const location     = useLocation();
   const navigate     = useNavigate();
+  const interviewToken = new URLSearchParams(location.search).get("token") || "";
 
   const [sessionId,       setSessionId]       = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -200,7 +202,7 @@ export default function Interview() {
     emotionSignal,
     emotionEnabled,
     analyseAnswer,
-  } = useProctoring({ sessionId, resultId, videoRef, enabled: !!sessionId });
+  } = useProctoring({ sessionId, resultId, interviewToken, videoRef, enabled: !!sessionId });
 
   const tabSwitchCount = proctoringEvents.filter((e) => e.type === "TAB_SWITCH").length;
 
@@ -216,6 +218,7 @@ export default function Interview() {
       
       const response = await interviewApi.start({
         result_id: Number(resultId),
+        interview_token: interviewToken || undefined,
         consent_given: consentGiven,
       });
       
@@ -781,7 +784,7 @@ export default function Interview() {
                 onPaste={(e) => {
                   const pastedText = e.clipboardData.getData("text");
                   if (pastedText.length > 10) {
-                    const eventTargetId = resultId || sessionId;
+                    const eventTargetId = interviewToken || resultId || sessionId;
                     if (eventTargetId) {
                       interviewApi.logEvent(eventTargetId, {
                         event_type: "paste_detected",

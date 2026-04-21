@@ -54,6 +54,11 @@ class Config:
     raw_frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip()
     FRONTEND_URL = raw_frontend_url.replace(" ", "") if "https" in raw_frontend_url else raw_frontend_url
 
+    # Interview scheduling and access windows
+    INTERVIEW_DEFAULT_TIMEZONE = os.getenv("INTERVIEW_DEFAULT_TIMEZONE", "Asia/Kolkata").strip()
+    INTERVIEW_START_EARLY_MINUTES = int(os.getenv("INTERVIEW_START_EARLY_MINUTES", "10"))
+    INTERVIEW_START_LATE_GRACE_MINUTES = int(os.getenv("INTERVIEW_START_LATE_GRACE_MINUTES", "30"))
+
     # ElevenLabs TTS Configuration (disabled - using browser TTS fallback)
     # ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "").strip()
 
