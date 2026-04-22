@@ -4,7 +4,7 @@ import {
   Mic, MicOff, Send, MessageSquare, CheckCircle2,
   Activity, AlertTriangle, Eye, EyeOff,
   Volume2, VolumeX, Loader2, Play, Clock, Zap,
-  ShieldCheck, BarChart3, TrendingUp, ChevronRight
+  ShieldCheck, BarChart3, TrendingUp, ChevronRight, X, AlertOctagon
 } from "lucide-react";
 import { interviewApi, proctorApi } from "../services/api";
 import { cn } from "../utils/utils";
