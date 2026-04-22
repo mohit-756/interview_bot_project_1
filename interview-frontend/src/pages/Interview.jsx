@@ -39,7 +39,10 @@ export default function Interview() {
         interview_token: interviewToken,
       });
 
+      console.log("[Interview] API response:", res);
+
       if (!res.current_question) {
+        console.log("[Interview] No current question - redirecting to completed");
         navigate(`/interview/${resultId}/completed`);
         return;
       }
@@ -50,6 +53,7 @@ export default function Interview() {
       setMaxQuestions(res.max_questions || 1);
       setTimeLeft(res.time_limit_seconds || 0);
     } catch (e) {
+      console.error("[Interview] Load error:", e);
       setError(e.message);
     } finally {
       setLoading(false);
