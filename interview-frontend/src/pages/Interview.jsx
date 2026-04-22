@@ -7,7 +7,6 @@ export default function Interview() {
   const location = useLocation();
   const navigate = useNavigate();
 
-// Parse token from hash URL (e.g., /interview/187?token=xxx)
   const getTokenFromHash = () => {
     try {
       const hash = location.hash || "";
@@ -43,19 +42,28 @@ export default function Interview() {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
-  // LOAD SESSION
   const loadSession = useCallback(async () => {
     setLoading(true);
-    console.log("[Interview] resultId:", resultId, "token from URL:", interviewToken);
-    console.log("[Interview] full location:", location);
+    setError("");
+    
+    const storedToken = sessionStorage.getItem(`interview-token:${resultId}`);
+    console.log("[Interview] resultId:", resultId, "token from sessionStorage:", storedToken);
+    
     try {
       const res = await interviewApi.start({
         result_id: Number(resultId),
         interview_token: interviewToken,
       });
-
-      console.log("[Interview] API response:", res);
-
+      
+      console.log("[Interview] API response received");
+      
+      if (!res || typeof res !== 'object') {
+        console.error("[Interview] Invalid response type:", typeof res);
+        setError("Invalid server response. Please try again or contact support.");
+        setLoading(false);
+        return;
+      }
+      
       if (!res.current_question) {
         console.log("[Interview] No current question - redirecting to completed");
         navigate(`/interview/${resultId}/completed`);
@@ -68,8 +76,18 @@ export default function Interview() {
       setMaxQuestions(res.max_questions || 1);
       setTimeLeft(res.time_limit_seconds || 0);
     } catch (e) {
-      console.error("[Interview] Load error:", e);
-      setError(e.message);
+      const msg = e.message || "";
+      console.error("[Interview] Load error:", msg);
+      
+      if (msg.includes("Not authenticated") || msg.includes("403") || msg.includes("401")) {
+        setError("Session expired. Please go back to the interview link from your email and try again.");
+      } else if (msg.includes("invalid") || msg.includes("token")) {
+        setError("Invalid interview link. Please use the link from your email.");
+      } else if (msg.includes("already completed")) {
+        navigate(`/interview/${resultId}/completed`);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -79,7 +97,6 @@ export default function Interview() {
     loadSession();
   }, [loadSession]);
 
-  // TIMER
   useEffect(() => {
     if (!currentQuestion) return;
     const t = setInterval(() => {
@@ -88,7 +105,6 @@ export default function Interview() {
     return () => clearInterval(t);
   }, [currentQuestion]);
 
-  // CAMERA
   useEffect(() => {
     async function initCam() {
       try {
@@ -111,7 +127,6 @@ export default function Interview() {
     };
   }, []);
 
-  // SUBMIT
   const handleSubmit = async () => {
     if (!sessionId || !currentQuestion) return;
     setIsSubmitting(true);
@@ -138,20 +153,46 @@ export default function Interview() {
     }
   };
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>{error}</div>;
+  const handleRetry = () => {
+    navigate(`/interview/${resultId}`);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400">Loading interview...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-6 rounded-2xl max-w-md text-center">
+          <h2 className="text-xl font-bold text-red-600 dark:text-red-400 mb-2">Cannot Start Interview</h2>
+          <p className="text-red-600 dark:text-red-300 mb-4">{error}</p>
+          <button
+            onClick={handleRetry}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl font-bold"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
-
-        {/* HEADER */}
-        <div className="flex justify-between">
+        <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">Live AI Interview</h1>
-          <div>{formatTime(timeLeft)}</div>
+          <div className="text-xl font-mono">{formatTime(timeLeft)}</div>
         </div>
 
-        {/* PROGRESS */}
         <div className="flex gap-2">
           {[...Array(maxQuestions)].map((_, i) => (
             <div key={i} className={i < questionNumber ? "bg-green-500 w-4 h-2" : "bg-gray-300 w-4 h-2"} />
@@ -159,16 +200,11 @@ export default function Interview() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-          {/* LEFT */}
           <div className="lg:col-span-2 space-y-4">
-
-            {/* QUESTION */}
             <div className="bg-white border rounded-2xl p-6">
               <h2 className="text-lg font-bold">{currentQuestion?.text}</h2>
             </div>
 
-            {/* ANSWER */}
             <div className="bg-white border rounded-2xl p-6 space-y-4">
               <textarea
                 value={answer}
@@ -187,20 +223,20 @@ export default function Interview() {
 
                 <button
                   onClick={handleSubmit}
-                  className="flex-1 bg-green-600 text-white py-2 rounded"
+                  disabled={isSubmitting || !answer.trim()}
+                  className="flex-1 bg-green-600 disabled:bg-gray-400 text-white py-2 rounded"
                 >
-                  Submit
+                  {isSubmitting ? "Submitting..." : "Submit"}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* RIGHT */}
           <div className="space-y-4">
             <div className="bg-white border rounded-2xl p-4">
-              <h3>Camera</h3>
+              <h3 className="font-bold mb-2">Camera</h3>
               <video ref={videoRef} autoPlay className="w-full" />
-              {!previewReady && <p>Camera not ready</p>}
+              {!previewReady && <p className="text-red-500">Camera not ready</p>}
             </div>
           </div>
         </div>

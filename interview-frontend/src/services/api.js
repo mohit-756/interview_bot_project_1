@@ -48,12 +48,13 @@ async function request(config) {
     console.log(`[API] Request data:`, JSON.stringify(config.data));
     const response = await apiClient(config);
     console.log(`[API] Response status:`, response.status);
-    console.log(`[API] Response headers:`, response.headers);
-    console.log(`[API] Response data:`, JSON.stringify(response.data).substring(0, 200));
+    console.log(`[API] Response headers content-type:`, response.headers["content-type"]);
+    console.log(`[API] Response data preview:`, typeof response.data === 'string' ? response.data.substring(0, 100) : JSON.stringify(response.data).substring(0, 200));
     return response.data;
   } catch (error) {
-    console.error(`[API] Error: ${config.url}`, error.message);
-    console.error(`[API] Error response:`, error.response?.data);
+    console.error(`[API] Error status:`, error.response?.status);
+    console.error(`[API] Error content-type:`, error.response?.headers?.["content-type"]);
+    console.error(`[API] Error response data:`, error.response?.data);
     throw new Error(extractErrorMessage(error));
   }
 }
