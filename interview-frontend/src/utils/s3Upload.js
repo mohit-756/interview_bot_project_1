@@ -33,9 +33,6 @@ export const uploadFileToS3 = async (file, onProgress) => {
     if (!res.ok) throw new Error("Failed to get upload URL");
 
     const { uploadUrl, fileUrl } = await res.json();
-    if (!uploadUrl || !fileUrl) {
-      throw new Error("Upload service did not return a usable S3 file URL");
-    }
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -71,5 +68,5 @@ export const uploadFileToS3 = async (file, onProgress) => {
   const response = await apiClient.post("/candidate/upload-resume", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return response.data?.uploaded_resume || response.data?.candidate?.resume_path || "";
+  return response.uploaded_resume || response.candidate?.resume_path || "uploaded";
 };
