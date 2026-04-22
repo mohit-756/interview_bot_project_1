@@ -7,7 +7,20 @@ export default function Interview() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const interviewToken = new URLSearchParams(location.search).get("token") || "";
+  // Parse token from hash URL (e.g., /interview/187?token=xxx)
+  const getTokenFromHash = () => {
+    try {
+      const hash = location.hash || "";
+      const hashPath = hash.replace("#", "");
+      const qIndex = hashPath.indexOf("?");
+      if (qIndex >= 0) {
+        const params = new URLSearchParams(hashPath.substring(qIndex));
+        return params.get("token") || "";
+      }
+    } catch (e) {}
+    return "";
+  };
+  const interviewToken = getTokenFromHash() || new URLSearchParams(location.search).get("token") || "";
 
   const [sessionId, setSessionId] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -33,6 +46,8 @@ export default function Interview() {
   // LOAD SESSION
   const loadSession = useCallback(async () => {
     setLoading(true);
+    console.log("[Interview] resultId:", resultId, "token from URL:", interviewToken);
+    console.log("[Interview] full location:", location);
     try {
       const res = await interviewApi.start({
         result_id: Number(resultId),
