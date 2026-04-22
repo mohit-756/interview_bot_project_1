@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -1089,7 +1089,7 @@ def hr_update_candidate_stage(
     stage_key = normalize_stage(payload.stage)
     result.shortlisted = stage_key in {"shortlisted", "interview_scheduled", "interview_completed", "selected"}
     if stage_key == "interview_scheduled" and not result.interview_date:
-        result.interview_date = datetime.utcnow().isoformat(timespec="minutes")
+        result.interview_date = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(timespec="minutes").replace("+00:00", "Z")
     db.commit()
     db.refresh(result)
     return {"ok": True, "result_id": result.id, "stage": stage_payload(result.stage)}

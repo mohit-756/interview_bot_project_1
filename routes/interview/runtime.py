@@ -43,7 +43,7 @@ from models import (
     Result,
 )
 
-from routes.common import interview_access_state, interview_entry_url, interview_schedule_state
+from routes.common import interview_access_state, interview_entry_url, interview_schedule_state, utc_isoformat
 from routes.dependencies import SessionUser, require_role
 
 from services.pipeline import record_stage_change
@@ -1494,11 +1494,11 @@ def interview_access(
 
         "interview_locked_reason": access["interview_locked_reason"],
 
-        "interview_datetime_utc": schedule["scheduled_utc"].isoformat() if schedule["scheduled_utc"] else None,
+        "interview_datetime_utc": utc_isoformat(schedule["scheduled_utc"]),
 
-        "interview_window_open_utc": schedule["window_open_utc"].isoformat() if schedule["window_open_utc"] else None,
+        "interview_window_open_utc": utc_isoformat(schedule["window_open_utc"]),
 
-        "interview_window_close_utc": schedule["window_close_utc"].isoformat() if schedule["window_close_utc"] else None,
+        "interview_window_close_utc": utc_isoformat(schedule["window_close_utc"]),
 
         "can_start_now": bool(schedule["can_start_now"]),
 
@@ -1532,9 +1532,9 @@ def interview_recheck(
         "result_id": result.id,
         "interview_ready": bool(access["interview_ready"]),
         "interview_locked_reason": access["interview_locked_reason"],
-        "scheduled_utc": schedule["scheduled_utc"].isoformat() if schedule["scheduled_utc"] else None,
-        "window_open_utc": schedule["window_open_utc"].isoformat() if schedule["window_open_utc"] else None,
-        "window_close_utc": schedule["window_close_utc"].isoformat() if schedule["window_close_utc"] else None,
+        "scheduled_utc": utc_isoformat(schedule["scheduled_utc"]),
+        "window_open_utc": utc_isoformat(schedule["window_open_utc"]),
+        "window_close_utc": utc_isoformat(schedule["window_close_utc"]),
         "can_start_now": bool(schedule["can_start_now"]),
         "has_interview_link": bool((result.interview_link or "").strip()),
         "has_secure_token": bool((result.interview_token or "").strip()),

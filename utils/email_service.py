@@ -2,9 +2,10 @@
 
 import os
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from urllib.parse import quote_plus
+from zoneinfo import ZoneInfo
 from core.config import config
 
 SMTP_SERVER = config.SMTP_SERVER
@@ -25,6 +26,50 @@ Hitech City, Madhapur, Hyderabad, Telangana 500081
 
 An E-Verified Company
 """
+
+
+def _interview_timezone() -> ZoneInfo:
+    tz_name = str(getattr(config, "INTERVIEW_DEFAULT_TIMEZONE", "Asia/Kolkata") or "Asia/Kolkata")
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def _coerce_interview_datetime(interview_datetime):
+    if isinstance(interview_datetime, str):
+        try:
+            interview_datetime = datetime.fromisoformat(interview_datetime.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if not interview_datetime:
+        return None
+    if interview_datetime.tzinfo is None:
+        return interview_datetime.replace(tzinfo=timezone.utc)
+    return interview_datetime.astimezone(timezone.utc)
+
+
+def _format_interview_datetime(interview_datetime):
+    dt_utc = _coerce_interview_datetime(interview_datetime)
+    if not dt_utc:
+        return "TBD"
+    return dt_utc.astimezone(_interview_timezone()).strftime("%A, %B %d, %Y at %I:%M %p")
+
+
+def _build_google_calendar_link(interview_datetime, role_title, interview_link):
+    """Build Google Calendar direct link."""
+    dt_utc = _coerce_interview_datetime(interview_datetime)
+    if not dt_utc:
+        dt_utc = datetime.now(timezone.utc)
+
+    end_dt_utc = dt_utc + timedelta(hours=1)
+    start_time = dt_utc.strftime("%Y%m%dT%H%M%SZ")
+    end_time = end_dt_utc.strftime("%Y%m%dT%H%M%SZ")
+
+    title = quote_plus(f"Interview - {role_title}")
+    details = quote_plus(f"Join Link: {interview_link}\n\nPlease join 5 minutes before the scheduled time.")
+
+    return f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={title}&dates={start_time}/{end_time}&details={details}"
 
 def _send_generic_email(to_email, subject, body):
     """Internal helper to send a standardized email using Quadrant branding."""
@@ -117,28 +162,6 @@ We appreciate the time and effort you put into the interview process. Regardless
 Thank you once again for your interest in Quadrant Technologies."""
 
     return _send_generic_email(to_email, subject, body)
-
-
-def _build_google_calendar_link(interview_datetime, role_title, interview_link):
-    """Build Google Calendar direct link."""
-    if isinstance(interview_datetime, str):
-        try:
-            dt = datetime.fromisoformat(interview_datetime.replace('Z', '+00:00'))
-        except:
-            dt = datetime.now()
-    else:
-        dt = interview_datetime
-    
-    start_time = dt.strftime("%Y%m%dT%H%M%S")
-    end_dt = dt.replace(hour=dt.hour + 1)
-    end_time = end_dt.strftime("%Y%m%dT%H%M%S")
-    
-    title = quote_plus(f"Interview - {role_title}")
-    details = quote_plus(f"Join Link: {interview_link}\n\nPlease join 5 minutes before the scheduled time.")
-    
-    return f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={title}&dates={start_time}/{end_time}&details={details}"
-
-
 def send_eligibility_email(to_email, candidate_name, role_title, is_eligible, feedback, dashboard_url):
     """Send eligibility status email with feedback."""
     if is_eligible:
@@ -181,17 +204,10 @@ Dashboard Link: {dashboard_url}"""
 
 def send_interview_confirmation_email(to_email, candidate_name, role_title, interview_datetime, interview_link, is_reschedule=False):
     """Send enhanced interview confirmation with Google Calendar link."""
-    if isinstance(interview_datetime, str):
-        try:
-            dt = datetime.fromisoformat(interview_datetime.replace('Z', '+00:00'))
-            formatted_date = dt.strftime("%A, %B %d, %Y at %I:%M %p")
-        except:
-            formatted_date = interview_datetime
-    else:
-        formatted_date = interview_datetime.strftime("%A, %B %d, %Y at %I:%M %p") if interview_datetime else "TBD"
+    formatted_date = _format_interview_datetime(interview_datetime)
     
     google_calendar_link = _build_google_calendar_link(
-        interview_datetime if not isinstance(interview_datetime, str) else datetime.fromisoformat(interview_datetime.replace('Z', '+00:00')) if 'T' in str(interview_datetime) else datetime.now(),
+        interview_datetime,
         role_title,
         interview_link
     )
@@ -227,17 +243,10 @@ Recruitment Team | Quadrant Technologies"""
 
 def send_reminder_24h_email(to_email, candidate_name, role_title, interview_datetime, interview_link):
     """Send 24-hour interview reminder."""
-    if isinstance(interview_datetime, str):
-        try:
-            dt = datetime.fromisoformat(interview_datetime.replace('Z', '+00:00'))
-            formatted_date = dt.strftime("%A, %B %d, %Y at %I:%M %p")
-        except:
-            formatted_date = interview_datetime
-    else:
-        formatted_date = interview_datetime.strftime("%A, %B %d, %Y at %I:%M %p") if interview_datetime else "TBD"
+    formatted_date = _format_interview_datetime(interview_datetime)
     
     google_calendar_link = _build_google_calendar_link(
-        interview_datetime if not isinstance(interview_datetime, str) else datetime.fromisoformat(interview_datetime.replace('Z', '+00:00')) if 'T' in str(interview_datetime) else datetime.now(),
+        interview_datetime,
         role_title,
         interview_link
     )
@@ -273,14 +282,7 @@ Recruitment Team | Quadrant Technologies"""
 
 def send_reminder_1h_email(to_email, candidate_name, role_title, interview_datetime, interview_link):
     """Send 1-hour interview reminder."""
-    if isinstance(interview_datetime, str):
-        try:
-            dt = datetime.fromisoformat(interview_datetime.replace('Z', '+00:00'))
-            formatted_date = dt.strftime("%A, %B %d, %Y at %I:%M %p")
-        except:
-            formatted_date = interview_datetime
-    else:
-        formatted_date = interview_datetime.strftime("%A, %B %d, %Y at %I:%M %p") if interview_datetime else "TBD"
+    formatted_date = _format_interview_datetime(interview_datetime)
     
     subject = f"Starting in 1 Hour - Interview for {role_title} | Quadrant Technologies"
     
