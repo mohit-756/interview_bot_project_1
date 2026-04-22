@@ -10,6 +10,44 @@ import { cn } from "../utils/utils";
 import AnswerFeedback from "../components/AnswerFeedback";
 import { useProctoring } from "../hooks/useProctoring";
 
+const SILENCE_THRESHOLD_RMS = 0.02;
+const SILENCE_RATIO_THRESHOLD = 0.7;
+
+async function calculateAudioRMS(audioBlob) {
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const channelData = audioBuffer.getChannelData(0);
+    let sumSquares = 0;
+    for (let i = 0; i < channelData.length; i++) {
+      sumSquares += channelData[i] * channelData[i];
+    }
+    return Math.sqrt(sumSquares / channelData.length);
+  } catch {
+    return 0;
+  } finally {
+    await audioContext.close();
+  }
+}
+
+async function filterSilentChunks(chunks) {
+  const validChunks = [];
+  let totalChunks = 0;
+  let silentChunks = 0;
+  for (const chunk of chunks) {
+    totalChunks++;
+    const rms = await calculateAudioRMS(chunk);
+    if (rms >= SILENCE_THRESHOLD_RMS) {
+      validChunks.push(chunk);
+    } else {
+      silentChunks++;
+    }
+  }
+  const silenceRatio = totalChunks > 0 ? silentChunks / totalChunks : 1;
+  return { validChunks, isMostlySilent: silenceRatio >= SILENCE_RATIO_THRESHOLD };
+}
+
 // ── Amazon Polly TTS hook ─────────────────────────────────────────────────────
 function useTTS() {
   const [muted, setMuted] = useState(false);
@@ -454,9 +492,14 @@ export default function Interview() {
           recorderRef.current = null;
           try {
             const mimeType = recorder.mimeType || getPreferredAudioMimeType() || "audio/webm";
-            const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+            const { validChunks, isMostlySilent } = await filterSilentChunks(recordedChunksRef.current);
             recordedChunksRef.current = [];
             releaseAudioStream();
+            if (isMostlySilent || validChunks.length === 0) {
+              resolve({ text: "", lowConfidence: true, confidence: null });
+              return;
+            }
+            const blob = new Blob(validChunks, { type: mimeType });
             if (!blob.size) { resolve({ text: "", lowConfidence: true, confidence: null }); return; }
             const fd = new FormData();
             const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
