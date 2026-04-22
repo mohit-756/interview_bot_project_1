@@ -115,9 +115,10 @@ class OpenAIAdapter:
 
     def create(self, messages: list[dict[str, Any]], temperature: float, max_tokens: int, **kwargs):
         model = kwargs.get("model") or self.model
+        response_format = kwargs.get("response_format")
         
         # Caching logic
-        cache_key = f"{model}_{temperature}_{json.dumps(messages)}"
+        cache_key = f"{model}_{temperature}_{json.dumps(messages)}_{json.dumps(response_format, sort_keys=True) if response_format else 'none'}"
         if cache_key in _llm_cache:
             logger.info(f"CACHE_HIT: model={model}")
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=_llm_cache[cache_key]))])
@@ -129,8 +130,8 @@ class OpenAIAdapter:
             "temperature": float(temperature),
             "max_tokens": int(max_tokens)
         }
-        if kwargs.get("response_format"):
-            payload["response_format"] = kwargs["response_format"]
+        if response_format:
+            payload["response_format"] = response_format
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",

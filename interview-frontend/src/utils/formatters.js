@@ -26,15 +26,44 @@ export function formatDateTime(value) {
   return date.toLocaleString();
 }
 
-export function resolveInterviewDateTime(source) {
-  if (!source) return null;
-  const raw =
-    source.interview_datetime_utc ||
-    source.interview_datetime ||
-    source.interview_date;
+function parseDate(value, { assumeUtc = false } = {}) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  let raw = String(value).trim();
   if (!raw) return null;
+
+  // Backward compatibility: some backend UTC fields were serialized without trailing timezone.
+  if (assumeUtc && /T/.test(raw) && !/(Z|[+-]\d{2}:\d{2})$/.test(raw)) {
+    raw = `${raw}Z`;
+  }
+
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatUtcDateTime(value, fallback = "N/A") {
+  const date = parseDate(value, { assumeUtc: true });
+  if (!date) return fallback;
+  return date.toLocaleString();
+}
+
+export function resolveInterviewDateTime(source) {
+  if (!source) return null;
+  const rawUtc = source.interview_datetime_utc;
+  const rawDateTime = source.interview_datetime;
+  const rawDate = source.interview_date;
+
+  const utcDate = parseDate(rawUtc, { assumeUtc: true });
+  if (utcDate) return utcDate;
+
+  // interview_datetime is stored as UTC on backend and should be treated as UTC when no suffix exists.
+  const interviewDateTime = parseDate(rawDateTime, { assumeUtc: true });
+  if (interviewDateTime) return interviewDateTime;
+
+  return parseDate(rawDate, { assumeUtc: false });
 }
 
 export function formatInterviewDateTimeLocal(source, fallback = "N/A") {

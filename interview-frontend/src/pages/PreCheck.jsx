@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { interviewApi } from "../services/api";
 import { useAuth } from "../context/useAuth";
-import { formatDateTime } from "../utils/formatters";
+import { formatUtcDateTime } from "../utils/formatters";
 import { cn } from "../utils/utils";
 
 async function attachPreviewStream(videoElement, stream) {
@@ -243,7 +243,7 @@ export default function PreCheck() {
 
       if (access?.interview_locked_reason === "scheduled_for_future" || access?.can_start_now === false) {
         const opensAt = access?.interview_window_open_utc
-          ? formatDateTime(access.interview_window_open_utc)
+          ? formatUtcDateTime(access.interview_window_open_utc)
           : null;
         setError(
           opensAt
