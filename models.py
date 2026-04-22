@@ -81,6 +81,7 @@ class JobDescription(Base):
     total_questions = Column(Integer, default=8, nullable=False)
     question_count = Column(Integer, default=8, nullable=False) # Legacy alias
     project_question_ratio = Column(Float, default=0.8, nullable=False)
+    total_duration_minutes = Column(Integer, default=30, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     gender_requirement = Column(String(50), nullable=True)
     education_requirement = Column(String(50), nullable=True)
