@@ -1594,6 +1594,12 @@ def interview_start(
 
     job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
 
+    configured_total_time = (
+        int(payload.total_time_seconds)
+        if payload.total_time_seconds is not None
+        else int((job.total_duration_minutes if job and job.total_duration_minutes else 30) * 60)
+    )
+
     configured_max_questions = (
 
         int(payload.max_questions)
@@ -1672,9 +1678,9 @@ def interview_start(
 
             per_question_seconds=payload.per_question_seconds,
 
-            total_time_seconds=payload.total_time_seconds,
+            total_time_seconds=configured_total_time,
 
-            remaining_time_seconds=payload.total_time_seconds,
+            remaining_time_seconds=configured_total_time,
 
             max_questions=configured_max_questions,
 
