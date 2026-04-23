@@ -68,9 +68,7 @@ def transcribe_audio_bytes(
     suffix = _resolve_suffix(filename)
     mime_type = _mime(suffix)
 
-    prompt = "Transcribe this interview answer to text. Speak clearly and answer the question."
-    if context_hint:
-        prompt += f" The question was: {context_hint}"
+    prompt = "Transcribe this interview answer to text clearly."
 
     # Try OpenAI Whisper first
     if openai_key:
