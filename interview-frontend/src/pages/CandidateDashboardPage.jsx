@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useId } from "react";
-import { Upload, CheckCircle2, AlertCircle, ArrowRight, FileSearch, Clock, Calendar, RefreshCw, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, ArrowRight, Clock, Calendar } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import StepChecklist from "../components/StepChecklist";
@@ -13,36 +13,13 @@ import {
   toDateTimeLocalInputValue,
 } from "../utils/formatters";
 
-function CollapseSection({ title, defaultOpen = false, children }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const buttonId = useId();
-  const contentId = useId();
-
-  const handleToggle = () => {
-    setIsOpen((prev) => !prev);
-  };
-
+function DetailSection({ title, children }) {
   return (
     <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-      <button
-        id={buttonId}
-        onClick={handleToggle}
-        aria-expanded={isOpen}
-        aria-controls={contentId}
-        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800 text-left hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-      >
+      <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
         <span className="font-bold text-slate-900 dark:text-white">{title}</span>
-        <span aria-hidden="true">
-          {isOpen ? <ChevronUp size={18} className="text-slate-500" /> : <ChevronDown size={18} className="text-slate-500" />}
-        </span>
-      </button>
-      <div
-        id={contentId}
-        role="region"
-        aria-labelledby={buttonId}
-        hidden={!isOpen}
-        className="p-4"
-      >
+      </div>
+      <div className="p-4">
         {children}
       </div>
     </div>
@@ -71,7 +48,10 @@ function SkillMatchTable({ explanation, selectedJd }) {
   const matchedSet = new Set((explanation?.matched_skills || []).map((s) => s.toLowerCase()));
   const allSkills = Object.keys(weights).length > 0
     ? Object.entries(weights).map(([skill, weight]) => ({ skill, weight: Number(weight), found: matchedSet.has(skill.toLowerCase()) }))
-    : [...(explanation?.matched_skills || []).map((s) => ({ skill: s, weight: "—", found: true })), ...(explanation?.missing_skills || []).map((s) => ({ skill: s, weight: "—", found: false }))];
+    : [
+      ...(explanation?.matched_skills || []).map((s) => ({ skill: s, weight: "-", found: true })),
+      ...(explanation?.missing_skills || []).map((s) => ({ skill: s, weight: "-", found: false })),
+    ];
   if (!allSkills.length) return null;
   const overallScore = Math.round(Number(explanation?.final_resume_score || explanation?.weighted_skill_score || 0));
 
@@ -90,10 +70,10 @@ function SkillMatchTable({ explanation, selectedJd }) {
             <tr key={skill} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
               <td className="px-4 py-3 font-medium text-slate-900 dark:text-white capitalize">{skill}</td>
               <td className="px-4 py-3 text-center">
-                {weight !== "—" ? (
+                {weight !== "-" ? (
                   <span className="inline-block w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center" aria-label={`Weight: ${weight}`}>{weight}</span>
                 ) : (
-                  <span className="text-slate-400" aria-hidden="true">—</span>
+                  <span className="text-slate-400" aria-hidden="true">-</span>
                 )}
               </td>
               <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">
@@ -123,7 +103,6 @@ export default function CandidateDashboardPage() {
   const [scheduling, setScheduling] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
   const [message, setMessage] = useState("");
-  const [showAllDetails, setShowAllDetails] = useState(false);
 
   const { announce } = useAnnounce();
   const jdSelectId = useId();
@@ -155,30 +134,43 @@ export default function CandidateDashboardPage() {
     : "";
 
   async function loadDashboard(jobId) {
-    setLoading(true); setError("");
+    setLoading(true);
+    setError("");
     try {
       const response = await candidateApi.dashboard(jobId);
       setDashboard(response);
       setMessage("");
       setScheduleDate(toDateTimeLocalInputValue(response?.result));
       announce("Dashboard loaded successfully");
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { loadDashboard(); }, []);
+  useEffect(() => {
+    loadDashboard();
+  }, []);
 
   async function handleSelectJd(e) {
     const jdId = Number(e.target.value);
     announce(`Selected job: ${e.target.options[e.target.selectedIndex].text}`);
-    try { await candidateApi.selectJd(jdId); await loadDashboard(jdId); }
-    catch (e) { setError(e.message); announce(`Error: ${e.message}`, "assertive"); }
+    try {
+      await candidateApi.selectJd(jdId);
+      await loadDashboard(jdId);
+    } catch (e) {
+      setError(e.message);
+      announce(`Error: ${e.message}`, "assertive");
+    }
   }
 
   async function handleFileUpload(e) {
     const file = e.target.files?.[0];
     if (!file || !dashboard?.selected_jd_id) return;
-    setUploading(true); setError(""); setMessage("");
+    setUploading(true);
+    setError("");
+    setMessage("");
     try {
       announce("Uploading resume...");
       const response = await candidateApi.uploadResume(file, dashboard.selected_jd_id);
@@ -188,21 +180,32 @@ export default function CandidateDashboardPage() {
     } catch (e) {
       setError(e.message);
       announce(`Upload error: ${e.message}`, "assertive");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
     }
-    finally { setUploading(false); e.target.value = ""; }
   }
 
   async function handleScheduleInterview() {
-    if (!result?.id || !scheduleDate) { setError("Pick a date first."); return; }
-    setScheduling(true); setError(""); setMessage("");
+    if (!result?.id || !scheduleDate) {
+      setError("Pick a date first.");
+      return;
+    }
+    setScheduling(true);
+    setError("");
+    setMessage("");
     try {
       announce("Scheduling interview...");
       const response = await candidateApi.scheduleInterview(result.id, scheduleDate);
-      setDashboard((c) => c ? { ...c, result: response.result } : c);
+      setDashboard((current) => current ? { ...current, result: response.result } : current);
       setMessage(response.message || "Interview scheduled.");
       announce("Interview scheduled successfully");
-    } catch (e) { setError(e.message); announce(`Error: ${e.message}`, "assertive"); }
-    finally { setScheduling(false); }
+    } catch (e) {
+      setError(e.message);
+      announce(`Error: ${e.message}`, "assertive");
+    } finally {
+      setScheduling(false);
+    }
   }
 
   const steps = [
@@ -217,6 +220,7 @@ export default function CandidateDashboardPage() {
       <p>Loading workspace...</p>
     </div>
   );
+
   if (error && !dashboard) return (
     <div role="alert" className="alert error">
       <p>{error}</p>
@@ -337,7 +341,7 @@ export default function CandidateDashboardPage() {
 
           {result && (
             <div className="space-y-6">
-              <CollapseSection title="Resume vs Job Description — Skill Match" defaultOpen={true}>
+              <DetailSection title="Resume vs Job Description - Skill Match">
                 <div className="flex items-center gap-2 mb-4">
                   <StatusBadge status={result.stage} />
                   <StatusBadge status={result.shortlisted ? "Shortlisted" : "Rejected"} />
@@ -351,10 +355,10 @@ export default function CandidateDashboardPage() {
                     </ul>
                   </div>
                 )}
-              </CollapseSection>
+              </DetailSection>
 
               <div className="grid md:grid-cols-2 gap-6">
-                <CollapseSection title="Score Breakdown" defaultOpen={false}>
+                <DetailSection title="Score Breakdown">
                   <div className="space-y-4 text-sm">
                     {[["Resume / JD Match", scoreBreakdown.resume_jd_match_score], ["Skills Match", scoreBreakdown.skills_match_score], ["Interview Score", scoreBreakdown.interview_performance_score], ["Communication", scoreBreakdown.communication_behavior_score]].map(([label, val]) => {
                       const pct = Math.round(Number(val || 0));
@@ -371,20 +375,20 @@ export default function CandidateDashboardPage() {
                       );
                     })}
                   </div>
-                </CollapseSection>
-                <CollapseSection title="Parsed Resume">
+                </DetailSection>
+                <DetailSection title="Parsed Resume">
                   <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Summary:</strong> {parsedResume.summary || "No summary extracted."}</p>
                   <div className="mt-3 flex flex-wrap gap-2">{(parsedResume.skills || []).length ? parsedResume.skills.map((item) => <span key={item} className="skill-pill">{item}</span>) : <span className="muted">No skills extracted.</span>}</div>
-                </CollapseSection>
+                </DetailSection>
               </div>
 
               {resumeAdvice && (
-                <CollapseSection title="Resume Advice">
+                <DetailSection title="Resume Advice">
                   <div className="grid md:grid-cols-2 gap-4">
                     <div><h5 className="font-bold text-emerald-600 dark:text-emerald-400 mb-3">Strengths</h5><ul className="space-y-2">{(resumeAdvice.strengths || []).map((item, i) => <li key={i} className="flex items-start text-sm text-slate-600 dark:text-slate-300"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 mr-2 flex-shrink-0" aria-hidden="true" />{item}</li>)}</ul></div>
                     <div><h5 className="font-bold text-amber-600 dark:text-amber-400 mb-3">Rewrite Tips</h5><ul className="space-y-2">{(resumeAdvice.rewrite_tips || []).map((item, i) => <li key={i} className="flex items-start text-sm text-slate-600 dark:text-slate-300"><div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 mr-2 flex-shrink-0" aria-hidden="true" />{item}</li>)}</ul></div>
                   </div>
-                </CollapseSection>
+                </DetailSection>
               )}
 
               {result.shortlisted && !interviewCompleted && !finalDecision && (
@@ -443,7 +447,7 @@ export default function CandidateDashboardPage() {
             <section aria-labelledby="selected-job-heading" className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm card-hover-lift">
               <h4 id="selected-job-heading" className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-4">Selected Job</h4>
               <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedJd.title}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Cutoff {selectedJd.qualify_score}% · {selectedJd.total_questions} questions</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Cutoff {selectedJd.qualify_score}% - {selectedJd.total_questions} questions</p>
             </section>
           )}
           {result && (
@@ -452,7 +456,7 @@ export default function CandidateDashboardPage() {
               <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
                 <div className="question-preview-card">Current stage: {result.stage?.label || "Applied"}</div>
                 <div className="question-preview-card">Recommendation: {result.recommendation || "Pending"}</div>
-                <div className="question-preview-card">{showStartInterview ? "Your interview is ready to start." : canScheduleInterview ? "Schedule your interview to continue." : interviewCompleted ? "Interview completed — wait for HR review." : "Upload and improve your resume to move ahead."}</div>
+                <div className="question-preview-card">{showStartInterview ? "Your interview is ready to start." : canScheduleInterview ? "Schedule your interview to continue." : interviewCompleted ? "Interview completed - wait for HR review." : "Upload and improve your resume to move ahead."}</div>
               </div>
             </section>
           )}
