@@ -61,6 +61,10 @@ def transcribe_audio_bytes(
     groq_api_key = os.getenv("GROQ_API_KEY", "")
     gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     
+    logger.info("Using keys - OPENAI: %s, GROQ: %s", 
+        "SET" if openai_key else "NOT SET",
+        "SET" if groq_api_key else "NOT SET")
+    
     suffix = _resolve_suffix(filename)
     mime_type = _mime(suffix)
 
@@ -71,12 +75,18 @@ def transcribe_audio_bytes(
     # Try OpenAI Whisper first
     if openai_key:
         try:
+            logger.info("OpenAI Whisper: audio_size=%d, mime_type=%s, language=%s", len(audio_bytes), mime_type, language or "en")
             url = "https://api.openai.com/v1/audio/transcriptions"
             files = {"file": (filename or "audio.webm", audio_bytes, mime_type)}
             data = {"model": "whisper-1", "language": language or "en", "prompt": prompt}
             headers = {"Authorization": f"Bearer {openai_key}"}
             
             response = requests.post(url, files=files, data=data, headers=headers, timeout=60)
+            logger.info("OpenAI Whisper response status: %d", response.status_code)
+            
+            if response.status_code != 200:
+                logger.warning("OpenAI Whisper error response: %s", response.text)
+                
             response.raise_for_status()
             result = response.json()
             text = result.get("text", "").strip() if result else ""
