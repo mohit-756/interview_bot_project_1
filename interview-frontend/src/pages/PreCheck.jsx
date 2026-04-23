@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Camera, Mic, Wifi, CheckCircle2, AlertCircle, Play,
-  ShieldCheck, Video, Settings, AlertTriangle, Lock, Mail, Volume2
+  ShieldCheck, Video, Settings, AlertTriangle, Lock, Mail, Volume2, AlertOctagon
 } from "lucide-react";
 import { interviewApi } from "../services/api";
 import { useAuth } from "../context/useAuth";
@@ -141,6 +141,43 @@ export default function PreCheck() {
     return saved || "kajal";
   });
   const [isTestingVoice, setIsTestingVoice] = useState(false);
+  const [showMicWarningModal, setShowMicWarningModal] = useState(false);
+
+  function MicWarningModal() {
+    if (!showMicWarningModal) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-md w-full mx-4 shadow-xl">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+              <AlertOctagon size={20} className="text-amber-500" />
+            </div>
+            <h3 className="text-slate-900 dark:text-white font-bold text-lg">Microphone Access Required</h3>
+          </div>
+          <p className="text-slate-600 dark:text-slate-300 mb-4">
+            We couldn't access your microphone. Please allow microphone access in your browser settings, then run the system check again.
+          </p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">
+            Don't worry — you can still complete the interview by typing your answers!
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowMicWarningModal(false)}
+              className="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+            >
+              Run System Check Again
+            </button>
+            <button
+              onClick={() => { setShowMicWarningModal(false); setError(""); }}
+              className="flex-1 px-4 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all"
+            >
+              Continue Anyway
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Check MediaRecorder support on mount
   useEffect(() => {
@@ -215,20 +252,12 @@ export default function PreCheck() {
           detail: recorderCheck.reason,
         },
       });
-      if (!micGranted) {
+if (!micGranted) {
+        setShowMicWarningModal(true);
         setError("Microphone not available. You can still complete the interview by typing answers.");
       }
     } catch {
-      setChecks({
-        camera: { status: "denied", label: "Camera access", detail: "Camera permission was blocked by browser." },
-        mic: { status: "denied", label: "Microphone access", detail: "Microphone permission was blocked by browser." },
-        internet: { status: "granted", label: "Internet connection" },
-        voiceRecorder: {
-          status: recorderCheck.supported ? "granted" : "denied",
-          label: "Voice recording support",
-          detail: recorderCheck.reason,
-        },
-      });
+      setShowMicWarningModal(true);
       setError("");
     } finally {
       setIsChecking(false);
@@ -305,6 +334,7 @@ export default function PreCheck() {
 
   return (
     <div className="min-h-[calc(100vh-160px)] flex flex-col items-center justify-center py-12 px-4 page-enter">
+      <MicWarningModal />
       <div className="max-w-4xl w-full grid grid-cols-1 lg:grid-cols-2 gap-12">
 
         {/* Left: checks */}

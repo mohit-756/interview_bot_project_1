@@ -148,7 +148,7 @@ export default function CandidateDashboardPage() {
   const steps = [
     { title: "Job Description", description: selectedJd ? selectedJd.title : "Select a role to apply", completed: Boolean(selectedJd) },
     { title: "Resume uploaded", description: dashboard?.candidate?.resume_path ? "Resume stored" : "Upload your resume", completed: Boolean(dashboard?.candidate?.resume_path) },
-    { title: "AI Screening", description: result ? `${Math.round(Number((result?.final_score ?? result?.score) || 0))}% Application Tracker score` : "Pending", completed: Boolean(result) },
+    { title: "AI Screening", description: result ? `${Math.round(Number((result?.final_score ?? result?.score) || 0))}% Application Tracking System score` : "Pending", completed: Boolean(result) },
     { title: "Interview stage", description: interviewCompleted ? "Interview submitted" : interviewReady ? "Ready to start" : canScheduleInterview ? "Schedule interview" : "Pending", completed: Boolean(interviewReady || interviewCompleted || finalDecision) },
   ];
 
@@ -160,7 +160,7 @@ export default function CandidateDashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 page-enter">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white font-display">Candidate Workspace</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Track your Application Tracker (ATS) stage, score breakdown, recommendation, and interview progress.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Track your Application Tracking System stage, score breakdown, recommendation, and interview progress.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button onClick={() => loadDashboard(dashboard?.selected_jd_id)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center space-x-2"><RefreshCw size={16} /><span>Refresh</span></button>

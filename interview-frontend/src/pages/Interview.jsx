@@ -6,14 +6,14 @@ import {
   Volume2, VolumeX, Loader2, Play, Clock, Zap,
   ShieldCheck, BarChart3, TrendingUp, ChevronRight, X, AlertOctagon
 } from "lucide-react";
-import { interviewApi, proctorApi } from "../services/api";
+import { interviewApi, proctorApi, baseURL } from "../services/api";
 import { cn } from "../utils/utils";
 import AnswerFeedback from "../components/AnswerFeedback";
 import { useProctoring } from "../hooks/useProctoring";
 import HelpSupportButton from "../components/HelpSupportButton";
 
-const SILENCE_THRESHOLD_RMS = 0.05;
-const SILENCE_RATIO_THRESHOLD = 0.5;
+const SILENCE_THRESHOLD_RMS = 0.01;
+const SILENCE_RATIO_THRESHOLD = 0.8;
 
 let sharedAudioContext = null;
 function getAudioContext() {
@@ -60,7 +60,8 @@ function useTTS() {
     try {
       const response = await interviewApi.tts(text, voiceType);
       if (response.audio_url) {
-        const audio = new Audio(response.audio_url);
+        const audioUrl = response.audio_url.startsWith("http") ? response.audio_url : `${baseURL}${response.audio_url}`;
+        const audio = new Audio(audioUrl);
         audioRef.current = audio;
         audio.onplay = () => setSpeaking(true);
         audio.onended = () => setSpeaking(false);
@@ -361,13 +362,22 @@ export default function Interview() {
           recorderRef.current = null;
           try {
             const mimeType = recorder.mimeType || getPreferredAudioMimeType() || "audio/webm";
-            const { validChunks, isMostlySilent } = await filterSilentChunks(recordedChunksRef.current);
+            const { validChunks } = await filterSilentChunks(recordedChunksRef.current);
+            const chunksToUse = (validChunks && validChunks.length > 0) ? validChunks : recordedChunksRef.current;
             recordedChunksRef.current = [];
             releaseAudioStream();
-            if (isMostlySilent || validChunks.length === 0) { resolve({ text: "", lowConfidence: true }); return; }
-            const blob = new Blob(validChunks, { type: mimeType });
+            
+            if (chunksToUse.length === 0) {
+              console.warn("[AUDIO] No chunks collected at all.");
+              resolve({ text: "", lowConfidence: true });
+              return;
+            }
+            
+            const blob = new Blob(chunksToUse, { type: mimeType });
+            console.log("[AUDIO] Sending blob for transcription, size:", blob.size);
+            
             const fd = new FormData();
-            fd.append("audio", blob, `answer.webm`);
+            fd.append("audio", blob, "answer.webm");
             fd.append("context_hint", String(currentQuestion?.text || ""));
             const res = await interviewApi.transcribe(fd);
             resolve({ text: String(res?.text || "").trim(), lowConfidence: !!res?.low_confidence, confidence: res?.confidence });
@@ -387,7 +397,7 @@ export default function Interview() {
       recordedChunksRef.current = [];
       const rec = new window.MediaRecorder(recStream, { mimeType: getPreferredAudioMimeType() });
       rec.ondataavailable = (ev) => { if (ev.data?.size > 0) recordedChunksRef.current.push(ev.data); };
-      rec.start();
+      rec.start(1000);
       recorderRef.current = rec;
       setIsRecording(true);
     } catch { setError("We couldn't access your microphone. Please allow permission from browser settings."); }
