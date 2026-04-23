@@ -170,13 +170,12 @@ export default function CandidateDashboardPage() {
       {error && <p className="alert error">{error}</p>}
       {message && <p className="alert success">{message}</p>}
 
-      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 page-enter-delay-1 flex-1">
-          <div className="card card-hover-lift status-border-left blue">
-            <p className="eyebrow">Current stage</p>
-            <div className="mt-2">{result?.stage ? <StatusBadge status={result.stage} /> : <StatusBadge status="applied" />}</div>
-            <p className="muted mt-3">Your application pipeline status</p>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 page-enter-delay-1">
+        <div className="card card-hover-lift status-border-left blue">
+          <p className="eyebrow">Current stage</p>
+          <div className="mt-2">{result?.stage ? <StatusBadge status={result.stage} /> : <StatusBadge status="applied" />}</div>
+          <p className="muted mt-3">Your application pipeline status</p>
+        </div>
         <div className="card card-hover-lift status-border-left green">
           <p className="eyebrow">Final score</p>
           <h3>{Math.round(Number((result?.final_score ?? result?.score) || 0))}%</h3>
