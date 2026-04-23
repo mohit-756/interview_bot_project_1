@@ -290,9 +290,9 @@ export default function HRPipelinePage() {
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors.pill}`}>{count}</span>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-slate-50 dark:bg-slate-800/50">
+                <div className="overflow-x-auto max-h-[400px]">
+                  <table className="w-full min-w-[600px]">
+                    <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
                       <tr>
                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Candidate</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Score</th>
@@ -303,12 +303,17 @@ export default function HRPipelinePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {stageCandidates.map((candidate) => (
+                      {stageCandidates.slice(0, 5).map((candidate) => (
                         <CandidateRow key={candidate.result_id} candidate={candidate} onQuickAction={handleQuickAction} quickActionLoadingId={updatingResultId} />
                       ))}
                     </tbody>
                   </table>
                 </div>
+                {stageCandidates.length > 5 && (
+                  <div className="text-center py-2 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800">
+                    + {stageCandidates.length - 5} more candidates in this stage
+                  </div>
+                )}
               </div>
             );
           })}

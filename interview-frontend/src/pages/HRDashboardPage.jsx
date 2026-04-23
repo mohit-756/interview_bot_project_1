@@ -37,7 +37,14 @@ const overview = dashboard?.analytics?.overview || {};
 
   const chartReadyFunnel = useMemo(() => funnel.map((item) => ({ name: item.label, value: item.count, fill: "#2563eb" })), [funnel]);
 
-  if (loading && !dashboard) return <p className="center muted">Loading HR dashboard...</p>;
+  if (loading && !dashboard) return (
+    <div className="flex items-center justify-center py-20">
+      <div className="text-center">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+        <p className="text-slate-500 dark:text-slate-400">Loading HR dashboard...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -72,7 +79,21 @@ const overview = dashboard?.analytics?.overview || {};
         <div className="lg:col-span-3 space-y-6">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <ChartCard title="Hiring Funnel" subtitle="Applied → shortlisted → interview completed → selected" accent="blue">
-              {!chartReadyFunnel.length ? <div className="text-center py-12 text-slate-500 dark:text-slate-400">No funnel data yet</div> : <div className="ats-chart-box tall"><ResponsiveContainer width="100%" height={250}><BarChart data={chartReadyFunnel} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis type="number" /><YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} /><Tooltip /><Bar dataKey="value" fill="#2563eb" radius={[0, 8, 8, 0]} /></BarChart></ResponsiveContainer></div>}
+              {!chartReadyFunnel.length ? (
+                <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                  {loading ? "Loading..." : "No candidates yet"}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={chartReadyFunnel} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#2563eb" radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
 
             <ChartCard title="Top Ranked Candidates" subtitle="Final weighted score sorted across current applications.">

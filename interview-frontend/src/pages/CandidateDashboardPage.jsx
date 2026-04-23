@@ -163,7 +163,6 @@ export default function CandidateDashboardPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">Track your Application Tracking System stage, score breakdown, recommendation, and interview progress.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={() => loadDashboard(dashboard?.selected_jd_id)} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center space-x-2"><RefreshCw size={16} /><span>Refresh</span></button>
           {showStartInterview && <Link to={interviewRoute} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-blue-900/30 flex items-center space-x-2"><span>{interviewSessionStatus === "in_progress" ? "Resume Interview" : "Start Interview"}</span><ArrowRight size={18} /></Link>}
         </div>
       </div>
@@ -171,12 +170,13 @@ export default function CandidateDashboardPage() {
       {error && <p className="alert error">{error}</p>}
       {message && <p className="alert success">{message}</p>}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 page-enter-delay-1">
-        <div className="card card-hover-lift status-border-left blue">
-          <p className="eyebrow">Current stage</p>
-          <div className="mt-2">{result?.stage ? <StatusBadge status={result.stage} /> : <StatusBadge status="applied" />}</div>
-          <p className="muted mt-3">Your application pipeline status</p>
-        </div>
+      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 page-enter-delay-1 flex-1">
+          <div className="card card-hover-lift status-border-left blue">
+            <p className="eyebrow">Current stage</p>
+            <div className="mt-2">{result?.stage ? <StatusBadge status={result.stage} /> : <StatusBadge status="applied" />}</div>
+            <p className="muted mt-3">Your application pipeline status</p>
+          </div>
         <div className="card card-hover-lift status-border-left green">
           <p className="eyebrow">Final score</p>
           <h3>{Math.round(Number((result?.final_score ?? result?.score) || 0))}%</h3>

@@ -321,8 +321,8 @@ export default function HRJdManagementPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">Create and manage job descriptions with skill weights, education requirements, and interview config.</p>
         </div>
         <button onClick={() => { setEditingJd(null); setShowForm(true); }}
-          className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-200 dark:shadow-none">
-          <Plus size={20} /><span>Add New JD</span>
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-all">
+          <Plus size={16} /><span>Add JD</span>
         </button>
       </div>
       {error && <p className="alert error">{error}</p>}
