@@ -10,6 +10,8 @@ import { interviewApi, proctorApi, baseURL } from "../services/api";
 import { cn } from "../utils/utils";
 import AnswerFeedback from "../components/AnswerFeedback";
 import { useProctoring } from "../hooks/useProctoring";
+import { useInputBlocking } from "../hooks/useInputBlocking";
+import { useFullScreen } from "../hooks/useFullScreen";
 import HelpSupportButton from "../components/HelpSupportButton";
 import { useAnnounce } from "../hooks/useAccessibility";
 
@@ -244,6 +246,8 @@ export default function Interview() {
 
   const { speak, stop: stopSpeaking, speaking, muted } = useTTS();
   const { proctoringEvents, analyseAnswer } = useProctoring({ sessionId, resultId, interviewToken, enabled: !!sessionId });
+  const { blockCount: inputBlockCount, lastBlockedAction } = useInputBlocking({ enabled: !!sessionId });
+  const { exitCount: fullScreenExitCount, showPrompt: fullScreenPrompt, dismissPrompt: dismissFullScreenPrompt, requestFullScreen } = useFullScreen({ enabled: !!sessionId });
   const { announce } = useAnnounce();
 
   const tabSwitchCount = proctoringEvents.filter((e) => e.type === "TAB_SWITCH").length;
@@ -614,6 +618,34 @@ export default function Interview() {
               </div>
             )}
 
+            {showFullScreenPrompt && (
+              <div role="alert" className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <AlertOctagon size={24} className="text-blue-400 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-blue-400 font-bold text-sm">For best experience, please enter full-screen mode</p>
+                    <p className="text-blue-300/70 text-xs mt-1">This interview works best in full-screen. Click below to enter.</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={requestFullScreen}
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-bold text-sm transition-colors"
+                  >
+                    Enter Full-Screen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissFullScreenPrompt}
+                    className="bg-slate-700 hover:bg-slate-600 text-white py-2 px-4 rounded-lg font-bold text-sm transition-colors"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+            )}
+
             {answerFeedback ? (
               <AnswerFeedback feedback={answerFeedback} onContinue={() => _advanceAfterAnswer(answerFeedback._nextResponse)} />
             ) : (
@@ -763,7 +795,7 @@ export default function Interview() {
                 {[
                   ["Status", sessionId ? "Active" : "Pending"],
                   ["Mic", micStatusOk ? "Ok" : "Check"],
-                  ["Stability", tabSwitchCount > 0 ? "Alert" : "Stable"],
+                  ["Stability", tabSwitchCount > 0 ? "Alert" : fullScreenExitCount > 0 ? "Warn" : "Stable"],
                   ["Encryption", "TLS 1.3"],
                 ].map(([l, v]) => (
                   <div key={l} className="bg-slate-800/50 border border-slate-700 p-3 rounded-xl">

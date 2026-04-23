@@ -111,6 +111,7 @@ SUSPICIOUS_TYPES = {
     "pause_enforced",
     "tab_switch",
     "paste_detected",
+    "gaze_away",
 }
 
 
@@ -2626,6 +2627,9 @@ def upload_proctor_frame(
 
     shoulder_score_raw = _float_or_none(frame.get("shoulder_score"))
 
+    gaze_direction = frame.get("gaze_direction")
+    mediapipe_enabled = bool(frame.get("mediapipe_enabled"))
+
     upper_bodies_count = int(frame.get("upper_bodies_count") or 0)
 
     baseline_signature = None
@@ -2782,6 +2786,10 @@ def upload_proctor_frame(
 
                 resolved_event_type = "high_motion"
 
+            elif gaze_direction and gaze_direction != "center":
+
+                resolved_event_type = "gaze_away"
+
             else:
 
                 resolved_event_type = "periodic"
@@ -2797,6 +2805,8 @@ def upload_proctor_frame(
                 "face_mismatch",
 
                 "shoulder_missing",
+
+                "gaze_away",
 
             }
 
@@ -2916,6 +2926,10 @@ def upload_proctor_frame(
 
         "opencv_enabled": bool(frame.get("opencv_enabled")),
 
+        "mediapipe_enabled": mediapipe_enabled,
+
+        "gaze_direction": gaze_direction,
+
     }
 
 
@@ -3022,6 +3036,10 @@ def upload_proctor_frame(
             "pause_seconds_left": pause_seconds_left,
 
             "opencv_enabled": bool(frame.get("opencv_enabled")),
+
+        "mediapipe_enabled": mediapipe_enabled,
+
+        "gaze_direction": gaze_direction,
 
             "requested_event_type": requested_event,
 

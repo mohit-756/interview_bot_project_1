@@ -1,4 +1,8 @@
-"""OpenCV-based frame analysis for interview proctoring."""
+"""MediaPipe/OpenCV-based frame analysis for interview proctoring.
+
+MediaPipe is preferred for better accuracy. Falls back to OpenCV if MediaPipe unavailable.
+Also provides gaze tracking when MediaPipe face mesh is available.
+"""
 
 from __future__ import annotations
 
@@ -6,30 +10,74 @@ import time
 from pathlib import Path
 from typing import Any
 
+cv2 = None
+np = None
+mp = None
+FaceDetection = None
+FaceMesh = None
+ DrawingSpec = None
+
 try:
-    import cv2  # type: ignore
-    import numpy as np  # type: ignore
-except Exception:  # pragma: no cover - runtime dependency fallback
+    import cv2
+    import numpy as np
+except Exception:
     cv2 = None
     np = None
 
+try:
+    import mediapipe as mp
+    if mp:
+        FaceDetection = mp.solutions.face_detection
+        FaceMesh = mp.solutions.face_mesh
+        DrawingSpec = mp.solutions.drawing_utils
+except Exception:
+    mp = None
+
 _FACE_CASCADE = None
 _UPPER_BODY_CASCADE = None
+_MP_DETECTOR = None
+_MP_MESH = None
 
 if cv2 is not None:
     _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     _UPPER_BODY_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_upperbody.xml")
 
+if mp is not None:
+    try:
+        _MP_DETECTOR = mp.solutions.face_detection.FaceDetection(
+            model_selection=0,
+            min_detection_confidence=0.5
+        )
+    except Exception:
+        _MP_DETECTOR = None
+
+    try:
+        _MP_MESH = mp.solutions.face_mesh.FaceMesh(
+            max_num_faces=2,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+    except Exception:
+        _MP_MESH = None
+
 _LAST_FRAMES: dict[int, Any] = {}
 _LAST_PERIODIC_SAVE: dict[int, float] = {}
+
+LEFT_EYE_INDICES = [33, 133, 160, 158, 153, 144, 145, 161, 246, 468, 469, 470, 471, 397, 288, 361, 323, 454, 356, 389, 251, 284, 328, 332, 397, 118, 119, 114, 115, 245, 222]
+RIGHT_EYE_INDICES = [362, 263, 387, 385, 380, 381, 382, 388, 473, 474, 475, 476, 292, 610, 624, 647, 700, 605, 570, 512, 610, 719, 639, 590, 608, 676, 570, 571, 658]
 
 
 def analyze_frame(session_id: int, raw_bytes: bytes) -> dict[str, object]:
     try:
-        if cv2 is None or np is None or not _is_cascade_ready(_FACE_CASCADE):
+        if cv2 is None or np is None:
+            return _fallback_response()
+
+        frame = _decode_frame(raw_bytes)
+        if frame is None:
             return {
-                "ok": True,
-                "faces_count": 1,
+                "ok": False,
+                "faces_count": 0,
                 "motion_score": 0.0,
                 "face_signature": None,
                 "face_box": None,
@@ -39,28 +87,52 @@ def analyze_frame(session_id: int, raw_bytes: bytes) -> dict[str, object]:
                 "shoulder_score": None,
                 "shoulder_present": None,
                 "shoulder_model_enabled": False,
-                "error": None,
+                "error": "Invalid frame payload",
                 "opencv_enabled": False,
             }
 
-        frame = _decode_frame(raw_bytes)
-        if frame is None:
-            return {
-                "ok": False,
-                "faces_count": 0,
-                "motion_score": 0.0,
-                "face_signature": None,
-                "error": "Invalid frame payload",
-                "opencv_enabled": True,
-            }
-
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(50, 50))
-        faces_count = int(len(faces))
-        face_box = _as_box(faces[0]) if faces_count == 1 else None
-        
-        face_signature = _face_signature(gray, face_box) if face_box else None
+
+        faces_count = 0
+        face_box = None
+        face_signature = None
+        gaze_direction = None
+        landmarks = None
+
+        if _MP_DETECTOR is not None:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb_frame.flags.writeable = False
+            detection_results = _MP_DETECTOR.process(rgb_frame)
+
+            if detection_results.detections:
+                faces_count = len(detection_results.detections)
+                if faces_count == 1:
+                    detection = detection_results.detections[0]
+                    bbox = detection.location_data.relative_bounding_box
+                    h, w = frame.shape[:2]
+                    x = int(bbox.xmin * w)
+                    y = int(bbox.ymin * h)
+                    width = int(bbox.width * w)
+                    height = int(bbox.height * h)
+                    x = max(0, x)
+                    y = max(0, y)
+                    face_box = (x, y, width, height) if width > 0 and height > 0 else None
+
+                    if face_box and _MP_MESH is not None:
+                        mesh_results = _MP_MESH.process(rgb_frame)
+                        if mesh_results.multi_face_landmarks:
+                            landmarks = mesh_results.multi_face_landmarks[0]
+                            gaze_direction = _calculate_gaze(landmarks, frame.shape)
+
+        if faces_count == 0:
+            faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(50, 50))
+            faces_count = int(len(faces))
+            if faces_count == 1:
+                face_box = _as_box(faces[0])
+
+        if face_box:
+            face_signature = _face_signature(gray, face_box)
+
         motion_score = _motion_score(session_id, gray)
         shoulder_data = _shoulder_metrics(gray, face_box)
 
@@ -76,6 +148,8 @@ def analyze_frame(session_id: int, raw_bytes: bytes) -> dict[str, object]:
             "shoulder_score": shoulder_data["shoulder_score"],
             "shoulder_present": shoulder_data["shoulder_present"],
             "shoulder_model_enabled": shoulder_data["shoulder_model_enabled"],
+            "gaze_direction": gaze_direction,
+            "mediapipe_enabled": _MP_DETECTOR is not None,
             "error": None,
             "opencv_enabled": True,
         }
@@ -85,9 +159,100 @@ def analyze_frame(session_id: int, raw_bytes: bytes) -> dict[str, object]:
             "faces_count": 0,
             "motion_score": 0.0,
             "face_signature": None,
-            "error": f"Internal cv error: {exc}",
-            "opencv_enabled": True,
+            "face_box": None,
+            "upper_bodies_count": 0,
+            "left_shoulder_visibility": None,
+            "right_shoulder_visibility": None,
+            "shoulder_score": None,
+            "shoulder_present": None,
+            "shoulder_model_enabled": False,
+            "gaze_direction": None,
+            "error": f"Internal error: {exc}",
+            "mediapipe_enabled": _MP_DETECTOR is not None,
+            "opencv_enabled": cv2 is not None,
         }
+
+
+def _calculate_gaze(landmarks, frame_shape) -> str | None:
+    if not landmarks or len(landmarks) < 478:
+        return None
+
+    try:
+        h, w = frame_shape[:2]
+
+        left_eye_pts = []
+        for idx in LEFT_EYE_INDICES:
+            if idx < len(landmarks):
+                lm = landmarks[idx]
+                left_eye_pts.append((lm.x * w, lm.y * h))
+
+        right_eye_pts = []
+        for idx in RIGHT_EYE_INDICES:
+            if idx < len(landmarks):
+                lm = landmarks[idx]
+                right_eye_pts.append((lm.x * w, lm.y * h))
+
+        if not left_eye_pts or not right_eye_pts:
+            return None
+
+        left_center = (
+            sum(p[0] for p in left_eye_pts) / len(left_eye_pts),
+            sum(p[1] for p in left_eye_pts) / len(left_eye_pts)
+        )
+        right_center = (
+            sum(p[0] for p in right_eye_pts) / len(right_eye_pts),
+            sum(p[1] for p in right_eye_pts) / len(right_eye_pts)
+        )
+
+        eye_center = (
+            (left_center[0] + right_center[0]) / 2,
+            (left_center[1] + right_center[1]) / 2
+        )
+
+        nose_tip = landmarks[1]
+        nose_x, nose_y = nose_tip.x * w, nose_tip.y * h
+
+        dx = eye_center[0] - nose_x
+        dy = eye_center[1] - nose_y
+
+        horizontal = abs(dx)
+        vertical = abs(dy)
+
+        threshold_h = w * 0.03
+        threshold_v = h * 0.03
+
+        if horizontal > threshold_h and dx < 0:
+            return "right"
+        elif horizontal > threshold_h and dx > 0:
+            return "left"
+        elif vertical > threshold_v and dy < 0:
+            return "down"
+        elif vertical > threshold_v and dy > 0:
+            return "up"
+
+        return "center"
+    except Exception:
+        return None
+
+
+def _fallback_response() -> dict[str, object]:
+    return {
+        "ok": True,
+        "faces_count": 1,
+        "motion_score": 0.0,
+        "face_signature": None,
+        "face_box": None,
+        "upper_bodies_count": 0,
+        "left_shoulder_visibility": None,
+        "right_shoulder_visibility": None,
+        "shoulder_score": None,
+        "shoulder_present": None,
+        "shoulder_model_enabled": False,
+        "gaze_direction": None,
+        "error": None,
+        "mediapipe_enabled": False,
+        "opencv_enabled": False,
+    }
 
 
 def compare_signatures(signature_a: list[float], signature_b: list[float]) -> float | None:
@@ -339,26 +504,22 @@ def _fallback_shoulder_score(
 
 
 def save_baseline_image(session_id: int, raw_bytes: bytes) -> str | None:
-    """Save baseline frame image to disk.
-    
-    Returns the saved file path relative to uploads/proctoring/.
-    """
     if cv2 is None or np is None:
         return None
     try:
         frame = _decode_frame(raw_bytes)
         if frame is None:
             return None
-        
+
         PROCTOR_ROOT = Path("uploads/proctoring")
         PROCTOR_ROOT.mkdir(parents=True, exist_ok=True)
-        
+
         session_dir = PROCTOR_ROOT / str(session_id)
         session_dir.mkdir(exist_ok=True)
-        
+
         filename = f"baseline_{int(time.time())}.jpg"
         filepath = session_dir / filename
-        
+
         success = cv2.imwrite(str(filepath), frame)
         if success:
             return f"proctoring/{session_id}/{filename}"
