@@ -445,6 +445,13 @@ export default function Interview() {
             const blob = new Blob(chunksToUse, { type: mimeType });
             console.log("[AUDIO] Sending blob for transcription, size:", blob.size);
 
+            // Minimum size check - reject if too small
+            if (blob.size < 2000) {
+              console.warn("[AUDIO] Recording too short, ignoring transcription");
+              resolve({ text: "", lowConfidence: true });
+              return;
+            }
+
             const fd = new FormData();
             fd.append("audio", blob, "answer.webm");
             fd.append("context_hint", String(currentQuestion?.text || ""));
