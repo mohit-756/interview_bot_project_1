@@ -247,6 +247,11 @@ export const hrApi = {
   updateSkillWeights: (payload) => request({ method: "post", url: "/hr/update-skill-weights", data: payload }),
 
   // Candidates
+  candidacy: (params = {}) => {
+    const response = request({ method: "get", url: "/hr/candidates", params });
+    return response;
+  },
+  candidates: (params = {}) => hrApi.listCandidates(params),
   async listCandidates(params = {}) {
     const response = await request({ method: "get", url: "/hr/candidates", params });
     return { ...response, candidates: (response?.candidates || []).map(normalizeCandidateSummary) };
