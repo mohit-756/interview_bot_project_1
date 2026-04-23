@@ -1,52 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Eye, RefreshCw, ThumbsDown, ThumbsUp, Users, Calendar, CheckCircle, XCircle, Filter, Search, ArrowUpDown } from "lucide-react";
+import { Eye, RefreshCw, ThumbsDown, ThumbsUp, Users, Calendar, CheckCircle, XCircle, Filter, Search } from "lucide-react";
 import ScoreBadge from "../components/ScoreBadge";
-import PageHeader from "../components/PageHeader";
 import { hrApi } from "../services/api";
 import { ATS_STAGE_DEFINITIONS as PIPELINE_STAGES, normalizeStageKey } from "../utils/stages";
-
-function CandidateCard({ candidate, onQuickAction, quickActionLoadingId, showJob = false }) {
-  const score = Math.round(Number(candidate.finalAIScore || candidate.score || 0));
-  const isLoading = quickActionLoadingId === candidate.result_id;
-  const jobTitle = candidate?.assignedJd?.title || candidate?.job?.title || candidate?.role || "-";
-
-  return (
-    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-300 dark:hover:border-blue-600 transition-all">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold text-slate-900 dark:text-white truncate">{candidate.name || "Unnamed"}</p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{candidate.email}</p>
-        </div>
-        {showJob && (
-          <div className="w-40 text-center">
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{jobTitle}</p>
-          </div>
-        )}
-        <div className="flex items-center gap-3">
-          <span className={`px-3 py-1 rounded-lg text-sm font-bold min-w-[60px] text-center ${score >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : score >= 65 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
-            {score}%
-          </span>
-          {isLoading ? (
-            <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <div className="flex items-center gap-2">
-              <button onClick={() => onQuickAction(candidate, 'shortlisted')} className="p-2 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 rounded-lg text-emerald-600 transition-colors" title="Shortlist">
-                <ThumbsUp size={18} />
-              </button>
-              <button onClick={() => onQuickAction(candidate, 'rejected')} className="p-2 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-red-600 transition-colors" title="Reject">
-                <ThumbsDown size={18} />
-              </button>
-              <Link to={`/hr/candidates/${candidate.candidate_uid}`} className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg text-blue-600 transition-colors" title="View Details">
-                <Eye size={18} />
-              </Link>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const STAGE_ICONS = {
   applied: Users,
@@ -67,13 +24,6 @@ const STAGE_COLORS = {
   selected: { bg: "bg-purple-50 dark:bg-purple-900/20", border: "border-purple-300 dark:border-purple-700", text: "text-purple-600 dark:text-purple-400", pill: "bg-purple-200 dark:bg-purple-800 text-purple-600 dark:text-purple-300" },
   rejected: { bg: "bg-red-50 dark:bg-red-900/20", border: "border-red-300 dark:border-red-700", text: "text-red-600 dark:text-red-400", pill: "bg-red-200 dark:bg-red-800 text-red-600 dark:text-red-300" },
 };
-
-function StageIcon({ stage, colors }) {
-  if (!stage) return null;
-  const Icon = STAGE_ICONS[stage];
-  if (!Icon) return <Users size={14} className={colors?.text} />;
-  return <Icon size={14} className={colors?.text} />;
-}
 
 function getCandidateJdId(candidate) {
   const jdId = candidate?.assignedJd?.id ?? candidate?.job?.id ?? null;
@@ -131,12 +81,7 @@ export default function HRPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingResultId, setUpdatingResultId] = useState(null);
-  const [page, setPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedStage, setSelectedStage] = useState(null);
-  const [sortBy, setSortBy] = useState("highest_score");
-  const stageSidebarRef = useRef(null);
 
   async function loadCandidates() {
     setLoading(true);
@@ -183,24 +128,11 @@ export default function HRPipelinePage() {
     }
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      result = result.filter((candidate) => 
+      result = result.filter((candidate) =>
         candidate?.name?.toLowerCase().includes(query) ||
         candidate?.candidate_uid?.toLowerCase().includes(query) ||
         candidate?.assignedJd?.title?.toLowerCase().includes(query)
       );
-    }
-    if (sortBy === "highest_score") {
-      result = [...result].sort((a, b) => (b.finalAIScore || b.score || 0) - (a.finalAIScore || a.score || 0));
-    } else if (sortBy === "lowest_score") {
-      result = [...result].sort((a, b) => (a.finalAIScore || a.score || 0) - (b.finalAIScore || b.score || 0));
-    } else if (sortBy === "name_asc") {
-      result = [...result].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    } else if (sortBy === "name_desc") {
-      result = [...result].sort((a, b) => (b.name || "").localeCompare(a.name || ""));
-    } else if (sortBy === "newest") {
-      result = [...result].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-    } else if (sortBy === "oldest") {
-      result = [...result].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
     }
     return result;
   }, [candidates, selectedJdId, searchQuery]);
@@ -226,11 +158,6 @@ export default function HRPipelinePage() {
     });
     return counts;
   }, [filteredCandidates]);
-
-  const totalPages = Math.max(1, Math.ceil(totalCandidates / itemsPerPage));
-  const paginatedCandidates = filteredCandidates.slice((page - 1) * itemsPerPage, page * itemsPerPage);
-
-  useEffect(() => { setPage(1); }, [selectedJdId, itemsPerPage, searchQuery]);
 
   function updateCandidateStageLocally(candidateId, nextStage) {
     const normalizedStage = normalizeStageKey(nextStage);
@@ -294,20 +221,8 @@ export default function HRPipelinePage() {
           </div>
           {/* JD Filter */}
           <select value={selectedJdId} onChange={(event) => setSelectedJdId(event.target.value)} className="px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="all">All Jobs ({totalCandidates})</option>
-            {availableJds.map((jd) => {
-              const jdCount = candidates.filter(c => getCandidateJdId(c) === String(jd.id)).length;
-              return <option key={jd.id} value={jd.id}>{jd.title} ({jdCount})</option>;
-            })}
-          </select>
-          {/* Sort Dropdown */}
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="highest_score">Score: High → Low</option>
-            <option value="lowest_score">Score: Low → High</option>
-            <option value="name_asc">Name: A → Z</option>
-            <option value="name_desc">Name: Z → A</option>
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
+            <option value="all">All Jobs</option>
+            {availableJds.map((jd) => <option key={jd.id} value={jd.id}>{jd.title}</option>)}
           </select>
           <Link to="/hr/candidates" className="px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">
             <Eye size={14} className="inline mr-1" /> List
@@ -318,25 +233,20 @@ export default function HRPipelinePage() {
         </div>
       </div>
 
-      {/* Stage Cards - Larger Dashboard Style */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      {/* Stage Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {PIPELINE_STAGES.map((stage) => {
           const IconComponent = STAGE_ICONS[stage.key] || Users;
           const count = stageCounts[stage.key] || 0;
           const colors = STAGE_COLORS[stage.key] || STAGE_COLORS.applied;
-          const isActive = selectedStage === stage.key;
           return (
-            <button
-              key={stage.key}
-              onClick={() => count > 0 ? setSelectedStage(isActive ? null : stage.key) : null}
-              className={`p-4 rounded-xl border-2 transition-all ${isActive ? `${colors.border} ${colors.bg}` : 'border-transparent bg-white dark:bg-slate-900 hover:border-slate-200 dark:hover:border-slate-700'} ${count === 0 ? 'opacity-50' : 'cursor-pointer'}`}
-            >
-              <div className={`p-2 w-fit rounded-lg mb-2 ${colors.bg}`}>
-                <IconComponent size={20} className={colors.text} />
+            <div key={stage.key} className={`p-3 rounded-xl border ${colors.bg} ${colors.border} flex items-center gap-2`}>
+              <IconComponent size={16} className={colors.text} />
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{stage.label}</p>
+                <p className={`text-lg font-bold ${colors.text}`}>{count}</p>
               </div>
-              <p className={`text-base font-semibold ${isActive ? colors.text : 'text-slate-700 dark:text-slate-300'}`}>{stage.label}</p>
-              <p className={`text-2xl font-bold ${isActive ? colors.text : 'text-slate-900 dark:text-white'}`}>{count}</p>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -345,48 +255,61 @@ export default function HRPipelinePage() {
       {error && <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">{error}</div>}
       {updatingResultId && <p className="text-sm text-slate-500 dark:text-slate-400">Updating...</p>}
 
-      {/* Pipeline View - All Candidates by Default */}
+      {/* Pipeline Stages */}
       {!totalCandidates ? (
         <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-          <Users size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
-          <p className="text-lg text-slate-900 dark:text-white font-medium">{selectedJdId === "all" ? "No candidates yet" : "No candidates for this job"}</p>
+          <Users size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+          <p className="text-slate-900 dark:text-white font-medium">{selectedJdId === "all" ? "No candidates yet" : "No candidates for this job"}</p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Candidates will appear once applications come in.</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          {/* Table Header */}
-          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">All Candidates</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">{totalCandidates} total candidate{totalCandidates !== 1 ? 's' : ''}{selectedJdId !== "all" ? ` for ${availableJds.find(j => j.id === selectedJdId)?.title || 'selected job'}` : ''}</p>
+        <div className="space-y-4">
+          {PIPELINE_STAGES.map((stage) => {
+            const stageCandidates = groupedCandidates[stage.key] || [];
+            const IconComponent = STAGE_ICONS[stage.key] || Users;
+            const colors = STAGE_COLORS[stage.key] || STAGE_COLORS.applied;
+            const count = stageCounts[stage.key] || 0;
+
+            if (count === 0) return null;
+
+            return (
+              <div key={stage.key} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <div className="px-4 py-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg ${colors.bg}`}>
+                      <IconComponent size={14} className={colors.text} />
+                    </div>
+                    <span className={`font-medium ${colors.text}`}>{stage.label}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors.pill}`}>{count}</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto max-h-[400px]">
+                  <table className="w-full min-w-[600px]">
+                    <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Candidate</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Score</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Stage</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Job</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Applied</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stageCandidates.slice(0, 5).map((candidate) => (
+                        <CandidateRow key={candidate.result_id} candidate={candidate} onQuickAction={handleQuickAction} quickActionLoadingId={updatingResultId} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {stageCandidates.length > 5 && (
+                  <div className="text-center py-2 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800">
+                    + {stageCandidates.length - 5} more candidates in this stage
+                  </div>
+                )}
               </div>
-              {selectedStage && (
-                <button onClick={() => setSelectedStage(null)} className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors">
-                  Clear Filter
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Column Headers */}
-          <div className="px-6 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
-            <div className="flex items-center gap-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              <div className="flex-1">Candidate</div>
-              <div className="w-40 text-center">Job Applied</div>
-              <div className="w-20 text-center">Score</div>
-              <div className="w-28 text-center">Actions</div>
-            </div>
-          </div>
-
-          {/* Candidates List */}
-          <div className="p-6">
-            <div className="space-y-3">
-              {(selectedStage ? groupedCandidates[selectedStage] : filteredCandidates)?.map((candidate) => (
-                <CandidateCard key={candidate.result_id} candidate={candidate} onQuickAction={handleQuickAction} quickActionLoadingId={updatingResultId} showJob={true} />
-              ))}
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
     </div>
