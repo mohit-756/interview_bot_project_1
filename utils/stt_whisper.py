@@ -77,12 +77,8 @@ def _clean_transcript_text(text: str) -> str:
             deduped.append(token)
         cleaned = " ".join(deduped).strip()
 
-    if len(cleaned.split()) < 2:
-        # Keep one-word answers like "yes" or "no" only when short and common.
-        if _normalize_for_match(cleaned) not in {"yes", "no", "maybe"}:
-            return ""
-
-    return cleaned
+    # Accept any transcription that Whisper returns
+    # No filtering on word count
 
 
 def _resolve_suffix(filename: str | None) -> str:
