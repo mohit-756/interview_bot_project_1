@@ -24,14 +24,35 @@ function buildAvatar(name) {
 
 function extractErrorMessage(error) {
   const responseData = error?.response?.data;
+  const status = error?.response?.status;
   const contentType = error?.response?.headers?.["content-type"] || "";
   
+  // Handle HTML responses (server errors)
   if (typeof responseData === "string" && !contentType.includes("application/json")) {
     if (responseData.includes("<!DOCTYPE html>") || responseData.includes("<html")) {
       console.error("[API] Received HTML response instead of JSON:", responseData.substring(0, 200));
-      return "Server error: Received invalid response. Please try again or contact support.";
+      return "Server error. Please try again or contact support.";
     }
     return responseData;
+  }
+  
+  // Map common error status codes to user-friendly messages
+  const errorMessages = {
+    400: "Invalid input. Please check and try again.",
+    401: "Your session expired. Please log in again.",
+    403: "You don't have permission for this action.",
+    404: "The requested item was not found.",
+    409: "This item was already modified. Please refresh and try again.",
+    422: "Validation error. Please check your input.",
+    429: "Too many requests. Please wait a moment.",
+    500: "Server error. Please try again later.",
+    502: "Server unavailable. Please try again later.",
+    503: "Service temporarily unavailable. Please try again.",
+  };
+  
+  // Return user-friendly message for known status codes
+  if (status && errorMessages[status]) {
+    return errorMessages[status];
   }
   
   const detail = responseData?.detail;
@@ -39,7 +60,9 @@ function extractErrorMessage(error) {
   if (Array.isArray(detail) && detail.length) {
     return detail.map((i) => (typeof i === "string" ? i : i?.msg || JSON.stringify(i))).join(", ");
   }
-  return error?.message || "Request failed";
+  
+  // Fallback to generic message
+  return error?.message || "Something went wrong. Please try again.";
 }
 
 async function request(config) {
