@@ -24,6 +24,7 @@ db_url = os.getenv("DATABASE_URL")
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 if db_url:
+    db_url = db_url.replace("%", "%%")  # Escape percent signs for config parser
     config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
