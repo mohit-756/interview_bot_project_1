@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Eye, Search, AlertTriangle, Clock, Calendar, ChevronLeft, ChevronRight, X, Info, Video, CheckCircle, PlayCircle, PauseCircle, AlertCircle, Filter } from "lucide-react";
-import MetricCard from "../components/MetricCard";
+import { Eye, Search, AlertTriangle, ChevronLeft, ChevronRight, X, Video, CheckCircle, PlayCircle } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import { hrApi } from "../services/api";
@@ -9,7 +8,7 @@ import { formatDateTime } from "../utils/formatters";
 
 const STATUS_TABS = [
   { key: "all", label: "All", icon: Video },
-  { key: "in_progress", label: "In Progress", icon: PlayCircle },
+  { key: "in_progress", label: "Active", icon: PlayCircle },
   { key: "completed", label: "Completed", icon: CheckCircle },
   { key: "finalized", label: "Finalized", icon: CheckCircle },
   { key: "suspicious", label: "Suspicious", icon: AlertTriangle },
@@ -80,10 +79,10 @@ export default function HRInterviewListPage() {
   const stats = useMemo(() => {
     const total = data.length;
     const inProgress = data.filter((r) => r.status === "in_progress").length;
-    const completed = data.filter((r) => r.status === "completed" || r.status === "selected" || r.status === "rejected").length;
-    const suspicious = data.reduce((sum, r) => sum + Number(r.suspicious_events_count || 0), 0);
+    const completed = data.filter((r) => r.status === "completed").length;
+    const finalized = data.filter((r) => r.status === "selected" || r.status === "rejected").length;
     const suspiciousRows = data.filter((r) => (r.suspicious_events_count ?? 0) > 0).length;
-    return { total, inProgress, completed, suspicious, suspiciousRows };
+    return { total, inProgress, completed, finalized, suspiciousRows };
   }, [data]);
 
   const getScoreBadge = (row) => {
@@ -118,7 +117,7 @@ export default function HRInterviewListPage() {
     const key = getStatusTab(row);
     const config = {
       all: { key: "all", label: "All", tone: "secondary" },
-      in_progress: { key: "in_progress", label: "In Progress", tone: "primary" },
+      in_progress: { key: "in_progress", label: "Active", tone: "primary" },
       completed: { key: "completed", label: "Completed", tone: "secondary" },
       finalized: { key: "finalized", label: "Finalized", tone: "success" },
       suspicious: { key: "suspicious", label: "Review Needed", tone: "danger" },
@@ -164,65 +163,54 @@ export default function HRInterviewListPage() {
           </div>
         </section>
       ) : (
-        <>
-          <section className="metric-grid page-enter-delay-1">
-            <MetricCard label="Total" value={String(stats.total)} hint="All interviews" icon={Video} />
-            <MetricCard label="In Progress" value={String(stats.inProgress)} hint="Active sessions" icon={PlayCircle} />
-            <MetricCard label="Completed" value={String(stats.completed)} hint="Ready for decision" icon={CheckCircle} />
-            <MetricCard label="Suspicious" value={String(stats.suspiciousRows)} hint="Events detected" color={stats.suspiciousRows > 0 ? "red" : "blue"} icon={AlertTriangle} />
-          </section>
-
-          <section className="card stack">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {STATUS_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const count = tab.key === "all" ? stats.total
-                : tab.key === "in_progress" ? stats.inProgress
-                : tab.key === "completed" ? (stats.total - stats.inProgress - stats.suspiciousRows)
-                : tab.key === "finalized" ? stats.completed
-                : stats.suspiciousRows;
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === tab.key
-                      ? tab.key === "suspicious" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400" :
-                        tab.key === "in_progress" ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" :
-                        "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  }`}
-                >
-                  <Icon size={14} />
-                  {tab.label}
-                  <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-xs ${
-                    activeTab === tab.key
-                      ? "bg-white/70 dark:bg-black/20"
-                      : "bg-slate-100 dark:bg-slate-700"
-                  }`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-initial">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <section className="card stack">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {STATUS_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const count = tab.key === "all" ? stats.total
+                  : tab.key === "in_progress" ? stats.inProgress
+                  : tab.key === "completed" ? stats.completed
+                  : tab.key === "finalized" ? stats.finalized
+                  : stats.suspiciousRows;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      activeTab === tab.key
+                        ? tab.key === "suspicious" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400" :
+                          tab.key === "in_progress" ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" :
+                          "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <Icon size={14} />
+                    {tab.label}
+                    <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-xs ${
+                      activeTab === tab.key
+                        ? "bg-white/70 dark:bg-black/20"
+                        : "bg-slate-100 dark:bg-slate-700"
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="relative w-full sm:w-56">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input
                 type="search"
                 placeholder="Search..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="w-full sm:w-48 pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
               />
             </div>
           </div>
-        </div>
 
-        <>
           {!paginatedRows.length && (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
               <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
@@ -287,23 +275,12 @@ export default function HRInterviewListPage() {
                         </div>
                       </td>
                       <td>
-                        <div className="flex items-center gap-1.5">
-                          <Link
-                            to={`/hr/interviews/${row.interview_id}`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
-                          >
-                            <Eye size={14} />View
-                          </Link>
-                          {(row.suspicious_events_count ?? 0) > 0 && (
-                            <Link
-                              to={`/hr/proctoring/${row.interview_id}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                              title="View proctoring timeline"
-                            >
-                              <AlertTriangle size={14} />
-                            </Link>
-                          )}
-                        </div>
+                        <Link
+                          to={`/hr/interviews/${row.interview_id}`}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                        >
+                          <Eye size={14} />View
+                        </Link>
                       </td>
                     </tr>
                   ))}
@@ -327,8 +304,6 @@ export default function HRInterviewListPage() {
                   <option value={25}>25</option>
                 </select>
                 <span className="text-slate-500">per page</span>
-                <span className="text-slate-400 hidden sm:inline">•</span>
-                <span className="text-slate-500 hidden sm:inline">{filteredRows.length} total</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -351,9 +326,7 @@ export default function HRInterviewListPage() {
               </div>
             </div>
           )}
-        </>
-      </section>
-      </>
+        </section>
       )}
 
       {suspiciousModal && (
@@ -381,22 +354,13 @@ export default function HRInterviewListPage() {
                 </p>
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Click "View" to see full details and timeline.</p>
               </div>
-              <div className="space-y-2">
-                <Link
-                  to={`/hr/interviews/${suspiciousModal.interview_id}`}
-                  className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors"
-                  onClick={() => setSuspiciousModal(null)}
-                >
-                  <Eye size={16} />View Full Interview & Timeline
-                </Link>
-                <Link
-                  to={`/hr/proctoring/${suspiciousModal.interview_id}`}
-                  className="flex items-center justify-center gap-2 w-full py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold transition-colors"
-                  onClick={() => setSuspiciousModal(null)}
-                >
-                  <Info size={16} />View Proctoring Timeline
-                </Link>
-              </div>
+              <Link
+                to={`/hr/interviews/${suspiciousModal.interview_id}`}
+                className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors"
+                onClick={() => setSuspiciousModal(null)}
+              >
+                <Eye size={16} />View Full Interview & Timeline
+              </Link>
             </div>
           </div>
         </div>
