@@ -26,6 +26,8 @@ const HRScoreMatrixPage = lazy(() => import("./pages/HRScoreMatrixPage"));
 const HRJdDetailPage = lazy(() => import("./pages/HRJdDetailPage"));
 const HRAnalyticsPage = lazy(() => import("./pages/HRAnalyticsPage"));
 const HRBackupPage = lazy(() => import("./pages/HRBackupPage"));
+const HRPipelinePage = lazy(() => import("./pages/HRPipelinePage"));
+const CandidateComparisonPage = lazy(() => import("./pages/CandidateComparisonPage"));
 const FinalResultPage = lazy(() => import("./pages/FinalResultPage"));
 
 function PageLoader() {
