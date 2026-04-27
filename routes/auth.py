@@ -33,7 +33,10 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 
+# from services.rate_limit import limiter  # Disabled due to missing fastapi_limiter
+
 @router.post("/login", response_model=TokenResponse)
+@response_wrapper
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not user.verify_password(payload.password):

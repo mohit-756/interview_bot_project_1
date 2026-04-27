@@ -26,6 +26,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, BackgroundTasks
 from routes.auth import get_current_user
+from services.rate_limit import limiter
 
 from ai_engine.phase1.matching import extract_text_from_file
 
@@ -64,10 +65,6 @@ from routes.interview.evaluation import run_evaluation_task
 
 
 from utils.proctoring_cv import analyze_frame, compare_signatures, should_store_periodic
-
-from utils.s3_utils import upload_proctor_image
-
-
 
 from utils.stt_whisper import transcribe_audio_bytes
 
@@ -265,99 +262,46 @@ def _ensure_session_questions(
 
 
     for index in range(start_index, len(planned)):
-
         item = planned[index]
-
-        dynamic_seconds = compute_dynamic_seconds(
-
-            base_seconds=int(session.per_question_seconds or 60),
-
-            question_index=index,
-
-            last_answer="",
-
-            max_questions=max_questions,
-
-        )
-
         text = str(item.get("text") or "").strip()
-
         if not text:
-
             continue
-
         if text.lower() in existing_texts:
-
             continue
-
         question = InterviewQuestion(
-
             session_id=session.id,
-
             text=text,
-
             difficulty=str(item.get("difficulty") or "medium"),
-
             topic=str(item.get("topic") or "general"),
-
             question_type=str(item.get("type") or "project"),
-
             intent=item.get("intent"),
-
             focus_skill=item.get("focus_skill"),
-
             project_name=item.get("project_name"),
-
             reference_answer=item.get("reference_answer"),
-
             metadata_json=item.get("metadata") if isinstance(item.get("metadata"), dict) else {
-
                 "category": item.get("category") or item.get("type") or "project",
-
                 "priority_source": item.get("priority_source") or "derived",
-
                 "skill_or_topic": item.get("focus_skill") or item.get("topic") or text,
-
                 "role_alignment": item.get("role_alignment"),
-
                 "resume_alignment": item.get("resume_alignment"),
-
                 "jd_alignment": item.get("jd_alignment"),
-
             },
-
-            allotted_seconds=int(dynamic_seconds),
-
         )
-
         existing_texts.add(text.lower())
-
         created.append(question)
-
         db.add(question)
 
 
 
     if not (existing or created):
-
         raise HTTPException(status_code=400, detail=f"Interview questions could not be prepared for {job_title}.")
-
-
-
     db.flush()
-
     logger.info(
-
         "interview_session_questions_materialize_success session_id=%s existing=%s created=%s total=%s",
-
         session.id,
-
         len(existing),
-
         len(created),
-
         len(existing) + len(created),
-
     )
 
     return _ordered_questions(db, session.id)
@@ -380,12 +324,8 @@ def _serialize_question(question: InterviewQuestion | None) -> dict[str, Any] | 
 
         "difficulty": question.difficulty,
 
-        "topic": question.topic,
-
-        "allotted_seconds": int(question.allotted_seconds or 0),
-
+"topic": question.topic,
         "metadata": question.metadata_json or {},
-
     }
 
 
@@ -1312,10 +1252,7 @@ def _compose_start_response(
 
         "question_number": answered_count + (1 if question else 0),
 
-        "max_questions": int(session.max_questions or 8),
-
-        "time_limit_seconds": int((question.allotted_seconds if question else 0) or 0),
-
+"max_questions": int(session.max_questions or 8),
         "remaining_total_seconds": int(session.remaining_time_seconds or session.total_time_seconds or 1200),
         "total_time_seconds": int(session.total_time_seconds or 1200),
 
@@ -1567,752 +1504,14 @@ def interview_recheck(
     candidate = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
-
     result = _resolve_candidate_result(db, candidate.id, result_id)
     access = interview_access_state(result)
     schedule = interview_schedule_state(result)
-
     return {
         "ok": True,
-        "result_id": result.id,
-        "interview_ready": bool(access["interview_ready"]),
-        "interview_locked_reason": access["interview_locked_reason"],
-        "scheduled_utc": utc_isoformat(schedule["scheduled_utc"]),
-        "window_open_utc": utc_isoformat(schedule["window_open_utc"]),
-        "window_close_utc": utc_isoformat(schedule["window_close_utc"]),
-        "can_start_now": bool(schedule["can_start_now"]),
-        "has_interview_link": bool((result.interview_link or "").strip()),
-        "has_secure_token": bool((result.interview_token or "").strip()),
-        "recommended_checks": [
-            "camera_permission",
-            "microphone_permission",
-            "network_stability",
-            "browser_tab_focus",
-        ],
+        "access": access,
+        "schedule": schedule,
     }
-
-
-
-
-
-@router.post("/interview/start")
-
-def interview_start(
-
-    payload: InterviewStartBody,
-
-    current_user: SessionUser = Depends(require_role("candidate")),
-
-    db: Session = Depends(get_db),
-
-) -> dict[str, Any]:
-    logger.info("interview_start payload_result_id=%s consent=%s", payload.result_id, payload.consent_given)
-
-    if payload.result_id is None:
-        raise HTTPException(status_code=400, detail="result_id is required")
-
-    if payload.candidate_id is not None and payload.candidate_id != current_user.user_id:
-
-        raise HTTPException(status_code=403, detail="candidate_id does not match logged-in user")
-
-
-
-    candidate = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
-
-    if not candidate:
-
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-
-
-    result = _resolve_candidate_result(db, candidate.id, payload.result_id)
-
-    if payload.interview_token:
-        provided = (payload.interview_token or "").strip()
-        expected = (result.interview_token or "").strip()
-        if expected and provided != expected:
-            raise HTTPException(status_code=403, detail="Interview link token is invalid")
-
-    _ensure_interview_ready(result)
-
-
-
-    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
-
-    configured_total_time = (
-        int(payload.total_time_seconds)
-        if payload.total_time_seconds is not None
-        else int((job.total_duration_minutes if job and job.total_duration_minutes else 30) * 60)
-    )
-
-    configured_max_questions = (
-
-        int(payload.max_questions)
-
-        if payload.max_questions is not None
-
-        else int(job.question_count if job and job.question_count is not None else 8)
-
-    )
-
-    # Enforce the configured count directly for the new question planner.
-
-    # We allow 2+ so the flow still behaves correctly for the smallest valid interviews.
-
-    configured_max_questions = max(2, min(20, configured_max_questions))
-
-
-
-    _ensure_question_bank(
-
-        db,
-
-        result=result,
-
-        candidate=candidate,
-
-        job=job,
-
-        question_count=configured_max_questions,
-
-    )
-
-
-
-    session = (
-
-        db.query(InterviewSession)
-
-        .filter(
-
-            InterviewSession.candidate_id == candidate.id,
-
-            InterviewSession.result_id == result.id,
-
-            InterviewSession.status == "in_progress",
-
-        )
-
-        .order_by(InterviewSession.id.desc())
-
-        .first()
-
-    )
-
-
-
-    if not session:
-
-        if not payload.consent_given:
-
-            raise HTTPException(
-
-                status_code=400,
-
-                detail="Consent to webcam proctoring is required before starting.",
-
-            )
-
-        session = InterviewSession(
-
-            candidate_id=candidate.id,
-
-            result_id=result.id,
-
-            status="in_progress",
-
-            per_question_seconds=payload.per_question_seconds,
-
-            total_time_seconds=configured_total_time,
-
-            remaining_time_seconds=configured_total_time,
-
-            max_questions=configured_max_questions,
-
-            consent_given=True,
-
-            warning_count=0,
-
-            consecutive_violation_frames=0,
-
-            paused_until=None,
-
-            llm_eval_status="pending",
-
-        )
-
-        db.add(session)
-
-        if result.stage != "interview_scheduled":
-
-            record_stage_change(db, result, stage="interview_scheduled", changed_by_role="system", changed_by_user_id=None, note="Interview session started")
-
-        db.commit()
-
-        db.refresh(session)
-
-        logger.info(
-
-            "interview_session_created session_id=%s result_id=%s candidate_id=%s max_questions=%s",
-
-            session.id,
-
-            result.id,
-
-            candidate.id,
-
-            session.max_questions,
-
-        )
-
-    elif payload.consent_given and not session.consent_given:
-
-        session.consent_given = True
-
-        db.commit()
-
-        db.refresh(session)
-
-
-
-    if not session.consent_given:
-
-        raise HTTPException(
-
-            status_code=400,
-
-            detail="Please complete consent in pre-check before starting interview.",
-
-        )
-
-
-
-    _ensure_session_questions(db, session=session, result=result)
-
-    db.commit()
-
-    ordered = _ordered_questions(db, session.id)
-
-    answered_count = sum(1 for item in ordered if item.time_taken_seconds is not None)
-
-    current_question = next((item for item in ordered if item.time_taken_seconds is None), None)
-
-    logger.info(
-
-        "interview_start_serving session_id=%s answered=%s max=%s has_current=%s",
-
-        session.id,
-
-        answered_count,
-
-        int(session.max_questions or 0),
-
-        bool(current_question),
-
-    )
-
-
-
-    if not current_question:
-
-        session.status = "completed"
-
-        session.ended_at = session.ended_at or datetime.utcnow()
-
-        db.commit()
-
-    elif current_question.started_at is None:
-
-        current_question.started_at = datetime.utcnow()
-
-        db.add(current_question)
-
-        db.commit()
-
-        db.refresh(current_question)
-
-
-
-    return _compose_start_response(session, current_question, answered_count)
-
-
-
-
-
-@router.post("/interview/answer")
-
-def interview_answer(
-
-    payload: InterviewAnswerBody,
-
-    background_tasks: BackgroundTasks,
-
-    current_user: SessionUser = Depends(require_role("candidate")),
-
-    db: Session = Depends(get_db),
-
-) -> dict[str, Any]:
-
-    session = _get_candidate_session_or_403(db, payload.session_id, current_user)
-
-    if session.status == "completed":
-
-        raise HTTPException(status_code=400, detail="Interview session already completed")
-
-    if not session.consent_given:
-
-        raise HTTPException(status_code=400, detail="Consent is required before answering interview questions.")
-
-
-
-    now = datetime.utcnow()
-
-    pause_seconds_left = _pause_seconds_left(session, now)
-
-    if pause_seconds_left > 0:
-
-        raise HTTPException(
-
-            status_code=429,
-
-            detail=f"Interview is paused for {pause_seconds_left}s due to repeated framing violations.",
-
-        )
-
-    if session.paused_until and (pause_seconds_left <= 0 or not PAUSE_ON_WARNINGS_ENABLED):
-
-        session.paused_until = None
-
-
-
-    question = (
-
-        db.query(InterviewQuestion)
-
-        .filter(
-
-            InterviewQuestion.id == payload.question_id,
-
-            InterviewQuestion.session_id == session.id,
-
-        )
-
-        .first()
-
-    )
-
-    if not question:
-
-        raise HTTPException(status_code=404, detail="Question not found in session")
-
-    if question.time_taken_seconds is not None:
-
-        raise HTTPException(status_code=400, detail="Question already answered")
-
-
-
-    question_limit = int(question.allotted_seconds or session.per_question_seconds or 60)
-
-    
-
-    # NEW: Secure server-side time calculation
-
-    if question.started_at:
-
-        elapsed_delta = now - question.started_at
-
-        actual_time_taken = int(elapsed_delta.total_seconds())
-
-        safe_time_taken = int(max(0, min(actual_time_taken, question_limit)))
-
-        started_at = question.started_at
-
-    else:
-
-        # Legacy fallback if started_at is missing (should not happen for new questions)
-
-        safe_time_taken = int(max(0, min(payload.time_taken_sec, question_limit)))
-
-        started_at = now - timedelta(seconds=safe_time_taken) if safe_time_taken else now
-
-
-
-    answer_text = (payload.answer_text or "").strip()
-
-    if payload.skipped:
-
-        answer_text = ""
-
-
-
-    result = db.query(Result).filter(Result.id == session.result_id).first()
-
-    if not result:
-
-        raise HTTPException(status_code=404, detail="Interview result not found")
-
-
-
-    # Safety: make sure the full session question rows exist (prevents early completion
-
-    # if a session was created before materialization or the bank was regenerated).
-
-    _ensure_session_questions(db, session=session, result=result)
-
-
-
-    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
-
-    # Keep answer handling lightweight; detailed scoring runs after interview completion.
-    summary = (answer_text[:220] + "...") if len(answer_text) > 220 else answer_text
-    if payload.skipped or not answer_text:
-        relevance_score = 0.0
-    else:
-        relevance_score = max(0.35, min(1.0, len(answer_text) / 250.0))
-
-    answer = (
-
-        db.query(InterviewAnswer)
-
-        .filter(
-
-            InterviewAnswer.session_id == session.id,
-
-            InterviewAnswer.question_id == question.id,
-
-        )
-
-        .order_by(InterviewAnswer.id.desc())
-
-        .first()
-
-    )
-
-    if answer:
-
-        answer.answer_text = answer_text if not payload.skipped else None
-
-        answer.skipped = payload.skipped
-
-        answer.time_taken_sec = safe_time_taken
-
-        answer.started_at = started_at
-
-        answer.ended_at = now
-
-        answer.evaluation_json = None
-
-    else:
-
-        answer = InterviewAnswer(
-
-            session_id=session.id,
-
-            question_id=question.id,
-
-            answer_text=answer_text if not payload.skipped else None,
-
-            skipped=payload.skipped,
-
-            time_taken_sec=safe_time_taken,
-
-            started_at=started_at,
-
-            ended_at=now,
-
-            evaluation_json=None,
-
-        )
-
-        db.add(answer)
-
-
-
-    question.answer_text = answer_text if not payload.skipped else None
-
-    question.answer_summary = summary
-
-    question.relevance_score = relevance_score
-
-    question.skipped = payload.skipped
-
-    question.time_taken_seconds = safe_time_taken
-
-
-
-    current_remaining = int(session.remaining_time_seconds or session.total_time_seconds or 1200)
-
-    session.remaining_time_seconds = max(0, current_remaining - safe_time_taken)
-
-
-
-    ordered = _ordered_questions(db, session.id)
-
-    answered_count = sum(1 for item in ordered if item.time_taken_seconds is not None)
-
-    logger.info(
-
-        "interview_answer_saved session_id=%s question_id=%s answered=%s max=%s remaining_total=%s skipped=%s",
-
-        session.id,
-
-        question.id,
-
-        answered_count,
-
-        int(session.max_questions or 0),
-
-        int(session.remaining_time_seconds or 0),
-
-        bool(payload.skipped),
-
-    )
-
-
-
-    max_questions = int(session.max_questions or 8)
-    # --- Adaptive Probing (Phase 2) ---
-    is_shallow = (relevance_score < 0.7) and (len(answer_text) < 250) and (not payload.skipped)
-
-    if is_shallow and question.question_type != "followup" and answered_count < max_questions:
-        try:
-            from services.llm_question_generator import generate_followup_question
-
-            # Generate the follow-up
-            candidate = db.query(Candidate).filter(Candidate.id == session.candidate_id).first()
-            resume_text = (candidate.resume_text if candidate else "") or ""
-
-            followup_data = generate_followup_question(question.text, answer_text, resume_text)
-
-            if followup_data:
-                # We want this to be the IMMEDIATE next question.
-                # We find the next unanswered question (if any) and "push" it.
-                remaining_qs = [q for q in ordered if q.time_taken_seconds is None and q.id != question.id]
-
-                if remaining_qs:
-                    next_q = remaining_qs[0]
-                    # 1. Create a "clone" of next_q to be the new last question
-                    pushed_q = InterviewQuestion(
-                        session_id=session.id,
-                        text=next_q.text,
-                        difficulty=next_q.difficulty,
-                        topic=next_q.topic,
-                        question_type=next_q.question_type,
-                        intent=next_q.intent,
-                        focus_skill=next_q.focus_skill,
-                        project_name=next_q.project_name,
-                        reference_answer=next_q.reference_answer,
-                        metadata_json=next_q.metadata_json,
-                        allotted_seconds=next_q.allotted_seconds,
-                    )
-                    db.add(pushed_q)
-
-                    # 2. Update next_q to BE the follow-up
-                    next_q.text = followup_data["text"]
-                    next_q.question_type = "followup"
-                    next_q.intent = followup_data["intent"]
-                    next_q.reference_answer = followup_data["reference_answer"]
-                    next_q.difficulty = followup_data["difficulty"]
-                    next_q.topic = "clarification"
-                    next_q.metadata_json = {"is_followup": True, "parent_question_id": question.id}
-                    # Follow-ups are usually shorter probes
-                    next_q.allotted_seconds = 45 
-                else:
-                    # No more questions? Just add it to the end.
-                    new_q = InterviewQuestion(
-                        session_id=session.id,
-                        text=followup_data["text"],
-                        difficulty=followup_data["difficulty"],
-                        topic="clarification",
-                        question_type="followup",
-                        intent=followup_data["intent"],
-                        reference_answer=followup_data["reference_answer"],
-                        allotted_seconds=45,
-                        metadata_json={"is_followup": True, "parent_question_id": question.id}
-                    )
-                    db.add(new_q)
-
-                session.max_questions += 1
-                db.commit()
-                # Refresh ordered list
-                ordered = _ordered_questions(db, session.id)
-        except Exception as exc:
-            logger.warning("adaptive_probing_failed error=%s", exc)
-
-    interview_completed = False
-    next_question = None
-
-    if (session.remaining_time_seconds or 0) <= 0 or answered_count >= max_questions:
-
-        interview_completed = True
-
-        next_question = None
-
-        if (session.remaining_time_seconds or 0) <= 0:
-
-            for unasked in ordered:
-
-                if unasked.time_taken_seconds is None and unasked.id != question.id:
-
-                    unasked.skipped = True
-
-                    unasked.time_taken_seconds = 0
-
-            db.commit()
-
-    else:
-
-        next_question = _create_next_question(db, session, result, answer_text)
-
-        interview_completed = next_question is None
-
-
-
-    if interview_completed:
-
-        session.status = "completed"
-
-        session.ended_at = now
-
-        session.llm_eval_status = "pending"
-
-        answer_evaluations = []
-        session_answers = db.query(InterviewAnswer).filter(InterviewAnswer.session_id == session.id).all()
-        jd_skill_keys = (job.skill_scores or {}).keys() if job else ()
-        for row in session_answers:
-            q = next((item for item in ordered if item.id == row.question_id), None)
-            if not q:
-                continue
-            evaluated = evaluate_answer(
-                q.text,
-                (row.answer_text or ""),
-                allotted_seconds=int(q.allotted_seconds or session.per_question_seconds or 60),
-                time_taken_seconds=int(row.time_taken_sec or 0),
-                jd_skills=jd_skill_keys,
-            )
-            row.evaluation_json = evaluated
-            answer_evaluations.append(evaluated)
-
-        interview_summary = summarize_interview(answer_evaluations)
-
-        session.evaluation_summary_json = {
-
-            **interview_summary,
-
-            "answered_count": answered_count,
-
-            "total_question_count": max_questions,
-
-        }
-
-        result.score_breakdown_json = build_application_score(
-
-            resume_score=float((result.explanation or {}).get("final_resume_score") or result.score or 0.0),
-
-            skills_match_score=float((result.explanation or {}).get("matched_percentage") or 0.0),
-
-            interview_score=float(interview_summary.get("overall_interview_score") or 0.0),
-
-            communication_score=float(interview_summary.get("communication_score") or 0.0),
-
-            weights_json=job.score_weights_json if job and hasattr(job, 'score_weights_json') and job.score_weights_json else None,
-
-        )
-
-        result.final_score = float(result.score_breakdown_json["final_weighted_score"])
-
-        result.recommendation = str(result.score_breakdown_json["recommendation"])
-
-        if result.stage != "interview_completed":
-
-            record_stage_change(db, result, stage="interview_completed", changed_by_role="system", changed_by_user_id=None, note="Interview finished")
-
-        db.commit()
-
-        
-
-        # NEW: Automatically queue LLM evaluation safely on the backend
-
-        background_tasks.add_task(run_evaluation_task, session.id)
-
-        
-
-        logger.info(
-
-            "interview_completed session_id=%s answered=%s max=%s",
-
-            session.id,
-
-            answered_count,
-
-            int(session.max_questions or 0),
-
-        )
-
-        return {
-
-            "ok": True,
-
-            "interview_completed": True,
-
-            "remaining_total_seconds": int(session.remaining_time_seconds or 0),
-
-            "next_question": None,
-
-            "question_number": answered_count,
-
-            "max_questions": max_questions,
-
-            "time_limit_seconds": 0,
-
-            "feedback": None,
-
-            "summary": session.evaluation_summary_json,
-
-        }
-
-
-
-    db.commit()
-
-    db.refresh(next_question)
-
-    logger.info(
-
-        "interview_next_served session_id=%s next_question_id=%s question_number=%s",
-
-        session.id,
-
-        next_question.id,
-
-        answered_count + 1,
-
-    )
-
-    return {
-
-        "ok": True,
-
-        "interview_completed": False,
-
-        "remaining_total_seconds": int(session.remaining_time_seconds or 0),
-
-        "next_question": _serialize_question(next_question),
-
-        "question_number": answered_count + 1,
-
-        "max_questions": max_questions,
-
-        "time_limit_seconds": int(next_question.allotted_seconds or session.per_question_seconds or 60),
-
-        "feedback": None,
-
-    }
-
-
-
-
-
 @router.post("/interview/transcribe")
 
 def interview_transcribe(
@@ -2344,9 +1543,8 @@ def interview_transcribe(
             "ok": True,
             "text": "",
             "confidence": 0.0,
-            "low_confidence": True,
             "language": language,
-            "tiny_audio": True,
+            "duplicate_audio": False,
         }
 
     audio_hash = hashlib.sha256(raw).hexdigest()
@@ -2629,20 +1827,15 @@ def interview_event_by_session(
 
 
 
-@router.post("/proctor/frame")
-
+@router.post("/proctor/frame", dependencies=[dep for dep in [limiter("30/minute")] if dep is not None])
 def upload_proctor_frame(
-
+    background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
-
     session_id: int = Form(...),
-
     event_type: str = Form("scan"),
-
     current_user: SessionUser = Depends(require_role("candidate")),
-
     db: Session = Depends(get_db),
-
 ) -> dict[str, Any]:
 
     session = _get_candidate_session_or_403(db, session_id, current_user)
@@ -3004,27 +2197,20 @@ def upload_proctor_frame(
 
 
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%f")
+    # Schedule asynchronous upload; any failure is handled and logged by the background task.
+    from services.background_tasks import schedule_proctor_image_upload
 
-    try:
-        image_url = upload_proctor_image(session.id, raw, timestamp)
-        relative_path = image_url
-    except Exception as e:
-        logger.warning(f"S3 upload failed, falling back to local: {e}")
-        session_dir = PROCTOR_UPLOAD_ROOT / str(session.id)
-        session_dir.mkdir(parents=True, exist_ok=True)
-        
-        existing_frames = sorted(session_dir.glob("*.jpg"))
-        if len(existing_frames) >= 50:
-            for old_frame in existing_frames[:-49]:
-                try:
-                    old_frame.unlink()
-                except Exception:
-                    pass
-        
-        file_path = session_dir / f"{timestamp}.jpg"
-        file_path.write_bytes(raw)
-        relative_path = file_path.relative_to(Path("uploads")).as_posix()
-        image_url = f"/uploads/{relative_path}"
+    request_id = request.headers.get("X-Request-ID", "")
+    schedule_proctor_image_upload(
+        background_tasks,
+        session.id,
+        raw,
+        timestamp,
+        request_id=request_id,
+    )
+    # Immediate placeholders; the client can retrieve the image later via event metadata.
+    image_url = ""
+    relative_path = ""
 
     score = float(motion_score)
 
@@ -3206,10 +2392,7 @@ def hr_proctoring_timeline(
 
             "ended_at": session.ended_at,
 
-            "per_question_seconds": session.per_question_seconds,
-
-            "remaining_time_seconds": session.remaining_time_seconds,
-
+"remaining_time_seconds": session.remaining_time_seconds,
             "max_questions": session.max_questions,
 
             "baseline_captured": bool(session.baseline_face_signature),

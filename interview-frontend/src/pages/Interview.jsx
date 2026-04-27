@@ -179,7 +179,6 @@ export default function Interview() {
   const [answer, setAnswer] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(0);
   const [totalTimeLeft, setTotalTimeLeft] = useState(0);
   const [totalTimeSeconds, setTotalTimeSeconds] = useState(1200);
   const [transcripts, setTranscripts] = useState([]);
@@ -191,6 +190,43 @@ export default function Interview() {
   const [previewWarning, setPreviewWarning] = useState("");
   const [answerFeedback, setAnswerFeedback] = useState(null);
   const [proctorAlert, setProctorAlert] = useState("");
+  const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
+
+
+  // Keyboard shortcuts & copy/paste protection
+  useEffect(() => {
+    const handler = (e) => {
+      // Space toggles mic when not typing in textarea
+      if (e.code === "Space" && document.activeElement.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        // toggle mic – assuming you have a function toggleMic defined elsewhere in this component
+        if (typeof toggleMic === "function") toggleMic();
+        return;
+      }
+      // Ctrl+Enter submits answer
+      if (e.ctrlKey && e.code === "Enter") {
+        e.preventDefault();
+        if (typeof handleSubmit === "function") handleSubmit();
+        return;
+      }
+      // Block copy/paste/cut actions (Ctrl+C/V/X, Cmd equivalents)
+      if ((e.ctrlKey || e.metaKey) && ["KeyC", "KeyV", "KeyX"].includes(e.code)) {
+        e.preventDefault();
+        return;
+      }
+      // Prevent exiting fullscreen via Esc or F11
+      if (e.key === "Escape" || e.key === "F11") {
+        e.preventDefault();
+        // request fullscreen again if lost
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen();
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
 
   const selectedVoice = (() => {
     const saved = sessionStorage.getItem(`interview-voice:${resultId}`);
@@ -260,7 +296,6 @@ export default function Interview() {
       setCurrentQuestion(response.current_question);
       setQuestionNumber(response.question_number || 1);
       setMaxQuestions(response.max_questions || 1);
-      setTimeLeft(response.time_limit_seconds || 0);
       setTotalTimeLeft(response.remaining_total_seconds || 0);
       setTotalTimeSeconds(response.total_time_seconds || 1200);
       baselineCapturedRef.current = false;
@@ -384,11 +419,10 @@ export default function Interview() {
     };
   }, [releaseAudioStream]);
 
-  // ── timer ──────────────────────────────────────────────────────────────────
+  // ── global timer ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!currentQuestion || loading || isSubmitting || answerFeedback) return;
     const id = setInterval(() => {
-      setTimeLeft((p) => (p > 0 ? p - 1 : 0));
       setTotalTimeLeft((p) => (p > 0 ? p - 1 : 0));
     }, 1000);
     return () => clearInterval(id);
@@ -404,7 +438,6 @@ export default function Interview() {
     setCurrentQuestion(response.next_question);
     setQuestionNumber(response.question_number || questionNumber + 1);
     setMaxQuestions(response.max_questions || maxQuestions);
-    setTimeLeft(response.time_limit_seconds || 0);
     setTotalTimeLeft(response.remaining_total_seconds || 0);
     setAnswer("");
     setTranscriptionWarning("");
@@ -426,7 +459,7 @@ export default function Interview() {
     setIsSubmitting(true);
     setError("");
     try {
-      const timeTaken = Math.max(0, (currentQuestion.allotted_seconds || 0) - timeLeft);
+      const timeTaken = 0;
       const response = await interviewApi.submitAnswer({
         session_id: sessionId,
         question_id: currentQuestion.id,
@@ -461,7 +494,7 @@ export default function Interview() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [answer, currentQuestion, _advanceAfterAnswer, sessionId, timeLeft, analyseAnswer, stopSpeaking, loadSession]);
+  }, [answer, currentQuestion, _advanceAfterAnswer, sessionId, analyseAnswer, stopSpeaking, loadSession]);
 
   // ── recording ──────────────────────────────────────────────────────────────
   const stopRecordingAndTranscribe = useCallback(async () => {
@@ -617,13 +650,6 @@ export default function Interview() {
     }
     await submitAnswer({ skipCurrent, answerOverride: nextAnswer });
   }, [answer, isRecording, isSubmitting, isTranscribing, stopRecordingAndTranscribe, submitAnswer]);
-
-  useEffect(() => {
-    if (!currentQuestion || isSubmitting || isTranscribing || answerFeedback) return;
-    if (timeLeft > 0 || autoSubmittedRef.current) return;
-    autoSubmittedRef.current = true;
-    void handleSubmit(false);
-  }, [currentQuestion, handleSubmit, isSubmitting, isTranscribing, timeLeft, answerFeedback]);
 
   // ── render ─────────────────────────────────────────────────────────────────
   if (loading) return (

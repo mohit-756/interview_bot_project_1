@@ -35,7 +35,91 @@ from routes.common import ensure_candidate_profile
 
 logger = logging.getLogger(__name__)
 
+import uuid
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Request, Response
+
 app = FastAPI(title="Interview Bot API", version="1.0.0")
+
+# ---------- Rate limiting setup ----------
+# Initialise FastAPI-Limiter with Redis only if REDIS_URL is defined.
+import os
+
+@app.on_event("startup")
+async def init_rate_limiter():
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        # In local/dev environments Redis may not be running - we simply skip rate limiting.
+        import logging
+        logging.getLogger(__name__).warning(
+            "REDIS_URL not set - rate limiting is disabled (development mode)"
+        )
+        return
+    # Import lazily so the module is optional when REDIS_URL is absent.
+    from fastapi_limiter import FastAPILimiter
+    from redis import Redis
+    redis = Redis.from_url(redis_url)
+    await FastAPILimiter.init(redis)
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = str(uuid.uuid4())
+        # Bind request_id to logging context (no structlog)
+        # Using standard logging; request_id is added in the JSON logger middleware
+        response: Response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+class ApiResponseMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if getattr(response, "media_type", None) == "application/json":
+            try:
+                body = b"".join([chunk async for chunk in response.body_iterator])
+                import json
+                data = json.loads(body)
+                if isinstance(data, dict):
+                    # Already wrapped?
+                    if "success" in data:
+                        return response
+                    # Legacy ok/key pattern
+                    if "ok" in data:
+                        wrapped = {"success": True, "data": data, "error": None}
+                        return Response(content=json.dumps(wrapped), media_type="application/json", status_code=response.status_code)
+                # Fallback wrap
+                wrapped = {"success": True, "data": data, "error": None}
+                return Response(content=json.dumps(wrapped), media_type="application/json", status_code=response.status_code)
+            except Exception:
+                pass
+        return response
+
+app.add_middleware(RequestIDMiddleware)
+
+# JSON logging middleware
+from services.logging import logger
+import time
+
+class JsonLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start = time.time()
+        response = await call_next(request)
+        duration = int((time.time() - start) * 1000)  # ms
+        logger.info(
+            "request",
+            extra={
+                "request_id": request.headers.get("X-Request-ID") or "",
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": duration,
+            },
+        )
+        return response
+
+app.add_middleware(JsonLoggingMiddleware)
+app.add_middleware(ApiResponseMiddleware)
+
 # Register global error handlers
 from routes.common import create_error_handler, create_http_exception_handler
 create_error_handler(app)
@@ -161,6 +245,7 @@ app.add_middleware(
     same_site="none" if IS_PROD else "lax",
     https_only=IS_PROD,
     session_cookie="interview_bot_sid",
+    max_age=3600,  # 1 hour session expiry
 )
 
 # ── CORS Configuration ───────────────────────────────────────────────────────

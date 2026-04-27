@@ -2,8 +2,12 @@ import os
 import jwt
 from datetime import datetime, timedelta
 from typing import Optional
+from fastapi import HTTPException, status
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-secret")
+# The JWT secret must be provided via environment variable. The app will not start without it.
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET_KEY environment variable is required for production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
@@ -18,6 +22,6 @@ def decode_access_token(token: str) -> dict:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
-        raise Exception("Token expired")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:
-        raise Exception("Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

@@ -36,3 +36,29 @@ def upload_pdf_report(session_id: int, pdf_bytes: bytes, filename: str) -> str:
     """Upload PDF report to S3."""
     key = f"{config.S3_REPORT_PREFIX}/session_{session_id}/{filename}"
     return upload_to_s3_via_lambda(pdf_bytes, key, "application/pdf")
+
+# ---------------------------------------------------------------------------
+# Async upload helper for proctoring frames (Item 4)
+# ---------------------------------------------------------------------------
+import httpx
+from typing import Any
+
+def _get_presigned_url(session_id: int, timestamp: str) -> dict[str, Any]:
+    """Call the existing Lambda endpoint to obtain a presigned URL for S3 upload.
+    Returns a dict with ``upload_url`` (PUT endpoint) and ``public_url`` (final object URL)."""
+    resp = requests.get(
+        f"{config.LAMBDA_S3_URL}?session_id={session_id}&ts={timestamp}", timeout=5
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+async def async_upload_proctor_image(session_id: int, image_bytes: bytes, timestamp: str) -> str:
+    """Upload a proctoring frame to S3 asynchronously.
+    Returns the public URL of the uploaded image."""
+    meta = _get_presigned_url(session_id, timestamp)
+    upload_url = meta["upload_url"]
+    public_url = meta["public_url"]
+    async with httpx.AsyncClient() as client:
+        put_resp = await client.put(upload_url, content=image_bytes, timeout=30)
+        put_resp.raise_for_status()
+    return public_url

@@ -26,6 +26,15 @@ function extractErrorMessage(error) {
   const responseData = error?.response?.data;
   const status = error?.response?.status;
   const contentType = error?.response?.headers?.["content-type"] || "";
+
+  const wrappedError = responseData?.error;
+  if (typeof wrappedError === "string" && wrappedError.trim()) return wrappedError;
+
+  const detail = responseData?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail.map((i) => (typeof i === "string" ? i : i?.msg || JSON.stringify(i))).join(", ");
+  }
   
   // Handle HTML responses (server errors)
   if (typeof responseData === "string" && !contentType.includes("application/json")) {
@@ -53,12 +62,6 @@ function extractErrorMessage(error) {
   // Return user-friendly message for known status codes
   if (status && errorMessages[status]) {
     return errorMessages[status];
-  }
-  
-  const detail = responseData?.detail;
-  if (typeof detail === "string" && detail.trim()) return detail;
-  if (Array.isArray(detail) && detail.length) {
-    return detail.map((i) => (typeof i === "string" ? i : i?.msg || JSON.stringify(i))).join(", ");
   }
   
   // Fallback to generic message
@@ -188,7 +191,7 @@ function normalizeCandidateDetail(data) {
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 export const authApi = {
-  login: (payload) => request({ method: "post", url: "/auth/login", data: { email: payload.email, password: payload.password } }),
+  login: (payload) => request({ method: "post", url: "/auth/login", data: { email: payload.email, password: payload.password, role: payload.role } }),
   signup: (payload) => request({ method: "post", url: "/auth/signup", data: payload }),
   logout: () => request({ method: "post", url: "/auth/logout" }),
   me: () => request({ method: "get", url: "/auth/me" }),

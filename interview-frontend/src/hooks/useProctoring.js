@@ -19,6 +19,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { authFetch } from "../utils/authFetch";
+import { detectFaces } from "../utils/faceDetection";
 
 const MAX_EVENTS_STORED = 200;
 

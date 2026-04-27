@@ -23,11 +23,13 @@ from models import Candidate, HR, PasswordResetToken, UserPreferences
 from routes.common import ensure_candidate_profile, get_candidate_or_404, get_hr_or_404
 from routes.dependencies import SessionUser, get_current_user
 from routes.schemas import LoginBody, SignupBody
+from services.rate_limit import limiter
 
 router = APIRouter()
 
 # ── Rate Limiting ─────────────────────────────────────────────────────────────
-# In-memory sliding window rate limiter for login attempts.
+# FastAPI-Limiter for distributed rate limiting (requires Redis)
+# In-memory fallback for local dev (from sessions.py original)
 # Tracks failed attempts per IP address.
 _rate_limit_store: dict[str, deque] = defaultdict(deque)
 RATE_LIMIT_WINDOW = 300  # 5 minutes
@@ -295,13 +297,17 @@ def signup(payload: SignupBody, db: Session = Depends(get_db)) -> dict[str, obje
     return {"ok": True, "id": user.id, "role": role}
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", dependencies=[dep for dep in [limiter("10/minute")] if dep is not None])
 def login(
     payload: LoginBody,
     request: Request,
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     import uuid
+    requested_role = (payload.role or "").strip().lower()
+    if requested_role and requested_role not in {"candidate", "hr"}:
+        raise HTTPException(status_code=400, detail="role must be candidate or hr")
+
     logger.info(f"Login attempt for: {payload.email}")
     client_ip = _get_client_ip(request)
     _check_rate_limit(client_ip)
@@ -314,6 +320,8 @@ def login(
         pw_check = verify_password(payload.password, candidate.password)
         logger.info(f"[DEBUG] Password verification result: {pw_check}")
     if candidate and verify_password(payload.password, candidate.password):
+        if requested_role and requested_role != "candidate":
+            raise HTTPException(status_code=403, detail="This email belongs to a candidate account. Switch to Candidate login.")
         if password_needs_upgrade(candidate.password):
             candidate.password = hash_password(payload.password)
             db.commit()
@@ -328,6 +336,8 @@ def login(
 
     hr_user = db.query(HR).filter(HR.email == payload.email).first()
     if hr_user and verify_password(payload.password, hr_user.password):
+        if requested_role and requested_role != "hr":
+            raise HTTPException(status_code=403, detail="This email belongs to an HR account. Switch to HR login.")
         if password_needs_upgrade(hr_user.password):
             hr_user.password = hash_password(payload.password)
             db.commit()

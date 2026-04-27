@@ -8,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 class LoginBody(BaseModel):
     email: EmailStr
     password: str
+    role: str | None = None
 
 
 class SignupBody(BaseModel):
@@ -47,8 +48,7 @@ class InterviewStartBody(BaseModel):
     result_id: int | None = None
     interview_token: str | None = None
     consent_given: bool = False
-    per_question_seconds: int = Field(default=60, ge=15, le=600)
-    total_time_seconds: int = Field(default=1200, ge=300, le=7200)
+    total_time_seconds: int | None = Field(default=None, ge=300, le=7200)
     max_questions: int | None = Field(default=None, ge=2, le=20)
 
 

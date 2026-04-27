@@ -12,7 +12,19 @@ class SessionUser:
 
 
 def get_current_user(request: Request) -> SessionUser:
-    """Load logged-in user from session and reject anonymous requests."""
+    """Load logged-in user from session, enforce expiry, and reject anonymous requests."""
+
+    # Session expiry enforcement (1 hour)
+    from datetime import datetime, timedelta
+    created_at = request.session.get("created_at")
+    if created_at:
+        try:
+            created_dt = datetime.fromisoformat(created_at)
+            if datetime.utcnow() - created_dt > timedelta(hours=1):
+                raise HTTPException(status_code=401, detail="Session expired")
+        except Exception:
+            # If timestamp malformed, treat as expired
+            raise HTTPException(status_code=401, detail="Session expired")
 
     user_id = request.session.get("user_id")
     role = request.session.get("role")
