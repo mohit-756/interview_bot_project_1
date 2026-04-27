@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from core.config import config
 from ai_engine.phase1.scoring import compute_resume_scorecard
@@ -211,9 +212,48 @@ def interview_access_state(result: Result | None) -> dict[str, object]:
     }
 
 
-def generate_candidate_uid() -> str:
-    stamp = datetime.utcnow().strftime("%Y%m%d")
-    return f"CAND-{stamp}-{uuid4().hex[:6].upper()}"
+def generate_candidate_uid(db: Session) -> str:
+    """
+    Generate sequential candidate UID: MMyyNNNN
+    Example: 4260001 = Month(4) + Year(26) + 0001st candidate
+    
+    Format: MMyyNNNN where:
+    - MM = month (1-12)
+    - yy = 2-digit year  
+    - NNNN = sequential number
+    
+    Returns sequential UID that increments each time.
+    """
+    from sqlalchemy import text
+    
+    now = datetime.utcnow()
+    month = now.month
+    year_2digit = now.strftime("%y")
+    prefix = f"{month}{year_2digit}"  # e.g., "426" for April 2026
+    
+    # Direct SQL to find max
+    # For SQLite: extract numeric part after prefix
+    sql = text("""
+        SELECT candidate_uid FROM candidates 
+        WHERE candidate_uid LIKE :prefix || '%'
+        AND LENGTH(candidate_uid) = 7
+        ORDER BY CAST(SUBSTR(candidate_uid, 4) AS INTEGER) DESC 
+        LIMIT 1
+    """)
+    result = db.execute(sql, {"prefix": prefix}).fetchone()
+    
+    max_num = 0
+    if result and result[0]:
+        uid = result[0]
+        try:
+            max_num = int(uid[len(prefix):])
+        except (ValueError, IndexError):
+            max_num = 0
+    
+    next_num = max_num + 1
+    candidate_uid = f"{prefix}{next_num:04d}"
+    
+    return candidate_uid
 
 
 def ensure_candidate_profile(candidate: Candidate, db: Session) -> bool:
@@ -227,7 +267,7 @@ def ensure_candidate_profile(candidate: Candidate, db: Session) -> bool:
         return changed
 
     for _ in range(10):
-        candidate_uid = generate_candidate_uid()
+        candidate_uid = generate_candidate_uid(db)
         query = db.query(Candidate).filter(Candidate.candidate_uid == candidate_uid)
         if candidate.id is not None:
             query = query.filter(Candidate.id != candidate.id)
