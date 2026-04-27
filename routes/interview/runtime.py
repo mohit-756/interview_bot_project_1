@@ -1520,9 +1520,10 @@ def start_interview(
         session = active_session
     else:
         job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
-        per_question_seconds = int(job.per_question_seconds or 60) if job else 60
-        max_questions = int(job.question_count or 8) if job else 8
-        total_time_seconds = per_question_seconds * max_questions
+        question_count = int(job.question_count or 8) if job else 8
+        duration_minutes = int(job.total_duration_minutes or 30) if job else 30
+        per_question_seconds = (duration_minutes * 60) // question_count
+        total_time_seconds = duration_minutes * 60
 
         session = InterviewSession(
             candidate_id=candidate.id,
@@ -1531,7 +1532,7 @@ def start_interview(
             per_question_seconds=per_question_seconds,
             total_time_seconds=total_time_seconds,
             remaining_time_seconds=total_time_seconds,
-            max_questions=max_questions,
+            max_questions=question_count,
             consent_given=consent_given,
         )
         db.add(session)
