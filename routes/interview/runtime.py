@@ -1544,7 +1544,7 @@ def start_interview(
 
     _ensure_session_questions(db, session=session, result=result)
 
-    next_question = _create_next_question(db, session, result)
+    next_question = _create_next_question(db, session, result, "")
     answered_count = len([q for q in session.questions if q.answer_text and q.answer_text.strip()])
 
     return _compose_start_response(session, next_question, answered_count)
