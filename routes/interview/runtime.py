@@ -640,6 +640,12 @@ def _resolve_result_by_token(db: Session, candidate_id: int, token: str) -> Resu
 
         raise HTTPException(status_code=404, detail="Interview token is missing")
 
+    return _resolve_result_by_token_or_id(db, candidate_id, token_value)
+
+
+def _resolve_result_by_token_or_id(db: Session, candidate_id: int, token: str) -> Result:
+    token_value = (token or "").strip()
+
     query = db.query(Result).filter(Result.candidate_id == candidate_id)
 
     by_token = query.filter(Result.interview_token == token_value).order_by(Result.id.desc()).first()
@@ -649,11 +655,9 @@ def _resolve_result_by_token(db: Session, candidate_id: int, token: str) -> Resu
         return by_token
 
     if token_value.isdigit():
-
         by_id = query.filter(Result.id == int(token_value)).first()
 
-        if by_id and not (by_id.interview_token or "").strip():
-
+        if by_id:
             return by_id
 
     raise HTTPException(status_code=404, detail="Interview token is invalid")
@@ -1714,20 +1718,13 @@ def interview_session_summary(
 
 
 @router.post("/interview/{token}/event")
-
 def interview_event(
-
     token: str,
-
     payload: InterviewEventBody,
-
     current_user: SessionUser = Depends(require_role("candidate")),
-
     db: Session = Depends(get_db),
-
 ) -> dict[str, Any]:
-
-    result = _resolve_result_by_token(db, current_user.user_id, token)
+    result = _resolve_result_by_token_or_id(db, current_user.user_id, token)
 
     latest_session = (
 
