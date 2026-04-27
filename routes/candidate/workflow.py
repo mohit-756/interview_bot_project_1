@@ -673,3 +673,41 @@ def candidate_practice_kit(
         "resume_advice": advice,
         "score_preview": score,
     }
+
+
+@router.post("/candidate/regenerate-questions")
+def regenerate_questions(
+    payload: dict,
+    current_user: SessionUser = Depends(require_role("candidate")),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Regenerate the question bank for a result."""
+    result_id = payload.get("result_id")
+    if not result_id:
+        raise HTTPException(status_code=400, detail="result_id is required")
+
+    result = db.query(Result).filter(Result.id == result_id, Result.candidate_id == current_user.user_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    selected_jd = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    if not selected_jd:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    from services.question_generation import build_question_bundle
+
+    candidate = db.query(Candidate).filter(Candidate.id == current_user.user_id).first()
+    project_ratio = float(selected_jd.project_question_ratio) if selected_jd and selected_jd.project_question_ratio is not None else 0.8
+    bundle = build_question_bundle(
+        resume_text=candidate.resume_text or "",
+        jd_text=selected_jd.jd_text or "",
+        jd_dict=selected_jd.jd_dict_json or {},
+        job_title=selected_jd.title or "",
+        project_ratio=project_ratio,
+        question_count=int(selected_jd.question_count if selected_jd.question_count is not None else 8),
+    )
+    questions = bundle.get("questions") or []
+    result.interview_questions = questions
+    db.commit()
+
+    return {"ok": True, "question_count": len(questions)}

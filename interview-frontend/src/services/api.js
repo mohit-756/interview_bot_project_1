@@ -240,6 +240,7 @@ export const candidateApi = {
     }
   },
   scheduleInterview: (resultId, interviewDate) => request({ method: "post", url: "/candidate/select-interview-date", data: { result_id: resultId, interview_date: interviewDate } }),
+  regenerateQuestions: (resultId) => request({ method: "post", url: "/candidate/regenerate-questions", data: { result_id: resultId } }),
   practiceKit: (jobId) => request({ method: "get", url: "/candidate/practice-kit", params: jobId ? { job_id: jobId } : undefined }),
   allResults: () => request({ method: "get", url: "/candidate/all-results" }),
   
