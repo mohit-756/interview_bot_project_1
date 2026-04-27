@@ -1548,6 +1548,23 @@ def start_interview(
 
     _ensure_session_questions(db, session=session, result=result)
 
+    if not result.interview_questions:
+        from services.question_generation import build_question_bundle
+        job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+        candidate = db.query(Candidate).filter(Candidate.id == result.candidate_id).first()
+        question_count = int(job.question_count or 8) if job else 8
+        bundle = build_question_bundle(
+            resume_text=candidate.resume_text or "",
+            jd_text=job.jd_text or "",
+            jd_dict=job.jd_dict_json or {},
+            job_title=job.title or "",
+            project_ratio=float(job.project_question_ratio or 0.8),
+            question_count=question_count,
+        )
+        result.interview_questions = bundle.get("questions") or []
+        db.commit()
+        _ensure_session_questions(db, session=session, result=result)
+
     next_question = _create_next_question(db, session, result, "")
     answered_count = len([q for q in session.questions if q.answer_text and q.answer_text.strip()])
 
