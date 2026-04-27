@@ -1615,6 +1615,9 @@ def submit_interview_answer(
         )
         db.add(answer)
 
+    question.answer_text = payload.answer_text
+    question.skipped = payload.skipped
+
     if not payload.skipped and payload.answer_text:
         session.remaining_time_seconds = max(0, session.remaining_time_seconds - payload.time_taken_sec)
 
