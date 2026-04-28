@@ -174,8 +174,31 @@ export default function Interview() {
 
   const [sessionId, setSessionId] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
-  const [questionNumber, setQuestionNumber] = useState(1);
-  const [maxQuestions, setMaxQuestions] = useState(1);
+  const [questionNumber, _setQuestionNumber] = useState(() => {
+    const saved = sessionStorage.getItem(`question-number:${resultId}`);
+    return saved ? parseInt(saved, 10) : 1;
+  });
+  const [maxQuestions, _setMaxQuestions] = useState(() => {
+    const saved = sessionStorage.getItem(`max-questions:${resultId}`);
+    return saved ? parseInt(saved, 10) : 1;
+  });
+
+  // Wrappers that persist to sessionStorage
+  const setQuestionNumber = useCallback((val) => {
+    _setQuestionNumber((prev) => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      sessionStorage.setItem(`question-number:${resultId}`, String(next));
+      return next;
+    });
+  }, [resultId]);
+
+  const setMaxQuestions = useCallback((val) => {
+    _setMaxQuestions((prev) => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      sessionStorage.setItem(`max-questions:${resultId}`, String(next));
+      return next;
+    });
+  }, [resultId]);
   const [answer, setAnswer] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
