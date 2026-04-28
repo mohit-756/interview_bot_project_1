@@ -1633,6 +1633,24 @@ def submit_interview_answer(
         InterviewQuestion.answer_text != ""
     ).count()
 
+    # Update ATS stage and session status if interview is completed
+    if next_question is None and result:
+        # Update session status
+        session.status = "completed"
+        session.ended_at = datetime.utcnow()
+        
+        # Update ATS stage
+        if result.stage != "interview_completed":
+            record_stage_change(
+                db,
+                result,
+                stage="interview_completed",
+                changed_by_role="system",
+                changed_by_user_id=None,
+                note="Interview submitted by candidate"
+            )
+        db.commit()
+
     response = _compose_start_response(session, next_question, answered_count)
     response["next_question"] = _serialize_question(next_question)
     return response

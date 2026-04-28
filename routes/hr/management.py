@@ -84,19 +84,29 @@ _latest_session = _latest_interview_session
 
 # 1) What this does: converts result/session data into a stable status key.
 # 2) Why needed: the UI needs a single normalized status value for labels and filtering.
-# 3) How it works: checks interview state first, then scheduled/shortlisted/rejected fallbacks.
+# 3) How it works: checks Result.stage first (source of truth), then session state fallbacks.
 def _status_key(result: Result | None, latest_session: InterviewSession | None) -> str:
     if not result:
         return "applied"
+    
     stage = normalize_stage(result.stage)
+    
+    # Priority 1: If Result.stage is already interview_completed, return it immediately
+    if stage == "interview_completed":
+        return stage
+    
     if latest_session:
         session_status = (latest_session.status or "").strip().lower()
         if session_status in {"selected", "rejected"}:
             return session_status
         if latest_session.ended_at or session_status == "completed":
             return "interview_completed"
-        if result.interview_date:
-            return "interview_scheduled"
+    
+    # Priority 2: Return stage from Result (could be interview_scheduled, shortlisted, etc.)
+    # Only fall back to interview_scheduled if stage is still the default scheduled state
+    if stage == "interview_scheduled" and result.interview_date:
+        return stage
+    
     return stage
 
 

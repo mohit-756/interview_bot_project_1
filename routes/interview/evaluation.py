@@ -15,6 +15,7 @@ from database import get_db, SessionLocal
 from models import InterviewAnswer, InterviewQuestion, InterviewSession
 from routes.dependencies import SessionUser, require_role
 from services.llm.client import _clean_json, _get_client, _llm_model, _llm_provider
+from services.pipeline import record_stage_change
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["interview-evaluation"])
@@ -282,6 +283,20 @@ def run_evaluation_task(session_id: int) -> None:
             section_scores[str(evaluation.get("section") or "project")].append(float(evaluation["score"]))
 
         session.llm_eval_status = "completed"
+        session.status = "completed"
+        session.ended_at = datetime.utcnow()
+
+        # Update ATS pipeline stage to interview_completed
+        if session.result and session.result.stage != "interview_completed":
+            record_stage_change(
+                db,
+                session.result,
+                stage="interview_completed",
+                changed_by_role="system",
+                changed_by_user_id=None,
+                note="Interview evaluation completed"
+            )
+
         db.commit()
     except Exception as exc:
         logger.error("Background evaluation task failed for session %s: %s", session_id, exc)
@@ -366,6 +381,18 @@ def evaluate_interview(
         section_scores[str(evaluation.get("section") or "project")].append(float(evaluation["score"]))
 
     session.llm_eval_status = "completed"
+
+    # Update ATS pipeline stage to interview_completed
+    if session.result and session.result.stage != "interview_completed":
+        record_stage_change(
+            db,
+            session.result,
+            stage="interview_completed",
+            changed_by_role="system",
+            changed_by_user_id=None,
+            note="Interview evaluation completed"
+        )
+
     db.commit()
 
     avg_score = round(total_score / scored, 1) if scored else 0.0
