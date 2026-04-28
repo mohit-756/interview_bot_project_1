@@ -454,13 +454,29 @@ export default function Interview() {
   // ── advance after answer ───────────────────────────────────────────────────
   const _advanceAfterAnswer = useCallback((response) => {
     stopSpeaking();
+    console.log("[Interview] _advanceAfterAnswer called", {
+      interview_completed: response.interview_completed,
+      has_next: !!response.next_question,
+      next_question: response.next_question?.id,
+      question_number: response.question_number,
+      max_questions: response.max_questions,
+    });
     if (response.interview_completed || !response.next_question) {
       navigate(`/interview/${resultId}/completed`);
       return;
     }
+    console.log("[Interview] Setting question to:", response.next_question?.id, "question_number:", response.question_number);
     setCurrentQuestion(response.next_question);
-    setQuestionNumber((prev) => response.question_number || prev + 1);
-    setMaxQuestions((prev) => response.max_questions || prev);
+    setQuestionNumber((prev) => {
+      const next = response.question_number || prev + 1;
+      console.log("[Interview] questionNumber updating:", prev, "->", next);
+      return next;
+    });
+    setMaxQuestions((prev) => {
+      const next = response.max_questions || prev;
+      console.log("[Interview] maxQuestions updating:", prev, "->", next);
+      return next;
+    });
     setTotalTimeLeft(response.remaining_total_seconds || 0);
     setAnswer("");
     setTranscriptionWarning("");
