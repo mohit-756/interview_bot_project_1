@@ -2333,17 +2333,6 @@ def upload_proctor_frame(
 
 
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%f")
-    # Schedule asynchronous upload; any failure is handled and logged by the background task.
-    from services.background_tasks import schedule_proctor_image_upload
-
-    request_id = request.headers.get("X-Request-ID", "")
-    schedule_proctor_image_upload(
-        background_tasks,
-        session.id,
-        raw,
-        timestamp,
-        request_id=request_id,
-    )
     # Immediate placeholders; the client can retrieve the image later via event metadata.
     image_url = ""
     relative_path = ""
@@ -2439,6 +2428,19 @@ def upload_proctor_frame(
     db.commit()
 
     db.refresh(event)
+
+
+    # Schedule asynchronous upload after event is created; pass event_id so S3 URL can be saved.
+    from services.background_tasks import schedule_proctor_image_upload
+    request_id = request.headers.get("X-Request-ID", "")
+    schedule_proctor_image_upload(
+        background_tasks,
+        session.id,
+        raw,
+        timestamp,
+        event_id=event.id,
+        request_id=request_id,
+    )
 
 
 
@@ -2561,7 +2563,7 @@ def hr_proctoring_timeline(
 
                 "suspicious": event.event_type in SUSPICIOUS_TYPES,
 
-                "image_url": f"{base_url}/uploads/{event.image_path}" if event.image_path else None,
+                "image_url": event.image_path if event.image_path and event.image_path.startswith("http") else (f"{base_url}/uploads/{event.image_path}" if event.image_path else None),
 
             }
 
