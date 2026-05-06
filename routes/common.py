@@ -64,12 +64,7 @@ def interview_entry_url(result_id: int | None, token: str | None = None) -> str 
         return None
     base_url = frontend_base_url()
     encoded_token = quote_plus((token or "").strip()) if token else ""
-    if "cloudfront.net" in base_url or "vercel.app" in base_url:
-        hash_path = f"#/interview/{int(result_id)}"
-        if encoded_token:
-            return f"{base_url}/?token={encoded_token}{hash_path}"
-        return f"{base_url}/{hash_path}"
-    path = f"{base_url}/interview/{int(result_id)}"
+    path = f"{base_url}/#/interview/{int(result_id)}"
     return f"{path}?token={encoded_token}" if encoded_token else path
 
 

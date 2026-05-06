@@ -1,5 +1,5 @@
 import { lazy, Suspense, Component } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import DashboardLayout from "./layout/DashboardLayout";
 import { ToastProvider } from "./context/ToastContext";
@@ -29,6 +29,7 @@ const HRBackupPage = lazy(() => import("./pages/HRBackupPage"));
 const HRPipelinePage = lazy(() => import("./pages/HRPipelinePage"));
 const CandidateComparisonPage = lazy(() => import("./pages/CandidateComparisonPage"));
 const FinalResultPage = lazy(() => import("./pages/FinalResultPage"));
+const CandidateSchedulePage = lazy(() => import("./pages/CandidateSchedulePage"));
 
 function PageLoader() {
   return (
@@ -43,6 +44,10 @@ function PageLoader() {
 
 function HomeRedirect() {
   const { user, loading } = useAuth();
+  const legacyInterviewMatch = window.location.pathname.match(/^\/interview\/([^/]+)\/?$/);
+  if (legacyInterviewMatch) {
+    return <Navigate to={`/interview/${legacyInterviewMatch[1]}${window.location.search || ""}`} replace />;
+  }
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
@@ -55,8 +60,13 @@ function HomeRedirect() {
 
 function PublicOnlyRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return null;
-  if (user) return <Navigate to={user.role === "hr" ? "/hr" : "/candidate"} replace />;
+  if (user) {
+    const next = new URLSearchParams(location.search).get("next");
+    const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "";
+    return <Navigate to={safeNext || (user.role === "hr" ? "/hr" : "/candidate")} replace />;
+  }
   return children;
 }
 
@@ -94,6 +104,7 @@ export default function App() {
         <Route element={<ProtectedRoute role="candidate" />}>
           <Route element={<DashboardLayout />}>
             <Route path="/candidate" element={<CandidateDashboardPage />} />
+            <Route path="/candidate/schedule" element={<Suspense fallback={<PageLoader />}><CandidateSchedulePage /></Suspense>} />
             <Route path="/interview/result" element={<Suspense fallback={<PageLoader />}><FinalResultPage /></Suspense>} />
           </Route>
         </Route>

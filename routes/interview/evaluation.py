@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from collections import defaultdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ from models import InterviewAnswer, InterviewQuestion, InterviewSession
 from routes.dependencies import SessionUser, require_role
 from services.llm.client import _clean_json, _get_client, _llm_model, _llm_provider
 from services.pipeline import record_stage_change
+from services.scoring import build_application_score, summarize_interview
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["interview-evaluation"])
@@ -229,6 +231,104 @@ def _upsert_llm_fields(db: Session, session_id: int, question: InterviewQuestion
     db.flush()
 
 
+def _summary_ready_evaluation(evaluation: dict[str, object]) -> dict[str, object]:
+    dims = evaluation.get("dimension_breakdown") or {}
+    if not isinstance(dims, dict):
+        dims = {}
+    score = evaluation.get("overall_answer_score", evaluation.get("score", 0))
+    try:
+        overall = float(score or 0)
+    except Exception:
+        overall = 0.0
+    return {
+        **evaluation,
+        "overall_answer_score": overall,
+        "confidence_communication": float(
+            evaluation.get("confidence_communication")
+            or dims.get("confidence")
+            or dims.get("clarity")
+            or overall
+            or 0
+        ),
+        "strengths": evaluation.get("strengths") if isinstance(evaluation.get("strengths"), list) else [],
+        "weaknesses": evaluation.get("weaknesses") if isinstance(evaluation.get("weaknesses"), list) else [],
+    }
+
+
+def _collect_stored_evaluations(db: Session, session_id: int) -> tuple[list[dict[str, object]], dict[str, list[float]]]:
+    questions = db.query(InterviewQuestion).filter(InterviewQuestion.session_id == session_id).order_by(InterviewQuestion.id.asc()).all()
+    answer_evaluations: list[dict[str, object]] = []
+    section_scores: dict[str, list[float]] = defaultdict(list)
+
+    for question in questions:
+        answer = (
+            db.query(InterviewAnswer)
+            .filter(InterviewAnswer.session_id == session_id, InterviewAnswer.question_id == question.id)
+            .order_by(InterviewAnswer.id.desc())
+            .first()
+        )
+        raw_eval = (answer.evaluation_json if answer and answer.evaluation_json else None) or question.evaluation_json or {}
+        if not raw_eval:
+            continue
+        normalized = _summary_ready_evaluation(raw_eval)
+        answer_evaluations.append(normalized)
+        section = str(normalized.get("section") or question.question_type or "project")
+        section_scores[section].append(float(normalized.get("overall_answer_score") or 0))
+
+    return answer_evaluations, section_scores
+
+
+def _finalize_interview_evaluation(
+    db: Session,
+    session: InterviewSession,
+    answer_evaluations: list[dict[str, object]],
+    section_scores: dict[str, list[float]],
+) -> tuple[dict[str, object], dict[str, float]]:
+    summary = summarize_interview(answer_evaluations)
+    section_summary = {key: round(sum(values) / len(values), 1) for key, values in section_scores.items() if values}
+
+    session.llm_eval_status = "completed"
+    session.status = "completed"
+    session.ended_at = session.ended_at or datetime.utcnow()
+    session.evaluation_summary_json = summary
+
+    result = session.result
+    if result:
+        explanation = result.explanation if isinstance(result.explanation, dict) else {}
+        result.explanation = {
+            **explanation,
+            "overall_interview_score": summary.get("overall_interview_score", 0.0),
+            "communication_score": summary.get("communication_score", 0.0),
+            "strengths_summary": summary.get("strengths_summary", []),
+            "weaknesses_summary": summary.get("weaknesses_summary", []),
+            "hiring_recommendation": summary.get("hiring_recommendation"),
+        }
+
+        job = result.job
+        score_breakdown = build_application_score(
+            resume_score=float(explanation.get("final_resume_score") or result.score or 0.0),
+            skills_match_score=float(explanation.get("matched_percentage") or explanation.get("weighted_skill_score") or 0.0),
+            interview_score=float(summary.get("overall_interview_score") or 0.0),
+            communication_score=float(summary.get("communication_score") or 0.0),
+            weights_json=job.score_weights_json if job and getattr(job, "score_weights_json", None) else None,
+        )
+        result.score_breakdown_json = score_breakdown
+        result.final_score = float(score_breakdown["final_weighted_score"])
+        result.recommendation = score_breakdown["recommendation"]
+
+        if result.stage != "interview_completed":
+            record_stage_change(
+                db,
+                result,
+                stage="interview_completed",
+                changed_by_role="system",
+                changed_by_user_id=None,
+                note="Interview evaluation completed",
+            )
+
+    return summary, section_summary
+
+
 def run_evaluation_task(session_id: int) -> None:
     """Background task to evaluate interview answers using a single batched LLM call."""
     db = SessionLocal()
@@ -253,6 +353,7 @@ def run_evaluation_task(session_id: int) -> None:
         scored = 0
         total_score = 0.0
         section_scores: dict[str, list[float]] = defaultdict(list)
+        answer_evaluations: list[dict[str, object]] = []
 
         # ONE batched LLM call for all answered questions (saves N-1 API requests vs per-question).
         llm_results = _batch_llm_evaluate(questions)
@@ -280,22 +381,11 @@ def run_evaluation_task(session_id: int) -> None:
             _upsert_llm_fields(db, session_id, question, evaluation)
             total_score += float(evaluation["score"])
             scored += 1
-            section_scores[str(evaluation.get("section") or "project")].append(float(evaluation["score"]))
+            normalized = _summary_ready_evaluation(evaluation)
+            answer_evaluations.append(normalized)
+            section_scores[str(evaluation.get("section") or "project")].append(float(normalized["overall_answer_score"]))
 
-        session.llm_eval_status = "completed"
-        session.status = "completed"
-        session.ended_at = datetime.utcnow()
-
-        # Update ATS pipeline stage to interview_completed
-        if session.result and session.result.stage != "interview_completed":
-            record_stage_change(
-                db,
-                session.result,
-                stage="interview_completed",
-                changed_by_role="system",
-                changed_by_user_id=None,
-                note="Interview evaluation completed"
-            )
+        _finalize_interview_evaluation(db, session, answer_evaluations, section_scores)
 
         db.commit()
     except Exception as exc:
@@ -335,12 +425,26 @@ def evaluate_interview(
                 break
             time.sleep(2)
             db.refresh(session)
+        if session.llm_eval_status == "completed" and (session.status != "completed" or not session.evaluation_summary_json):
+            answer_evaluations, section_scores = _collect_stored_evaluations(db, session_id)
+            summary, section_summary = _finalize_interview_evaluation(db, session, answer_evaluations, section_scores)
+            db.commit()
+            return {
+                "ok": True,
+                "session_id": session_id,
+                "status": session.llm_eval_status,
+                "questions_evaluated": len(answer_evaluations),
+                "average_llm_score": round(float(summary.get("overall_interview_score") or 0.0), 1),
+                "section_summary": section_summary,
+                "message": "Evaluation was repaired and finalized.",
+            }
         return {"ok": True, "session_id": session_id, "status": session.llm_eval_status, "message": "Evaluation handled by background task."}
 
     questions = db.query(InterviewQuestion).filter(InterviewQuestion.session_id == session_id).order_by(InterviewQuestion.id.asc()).all()
     scored = 0
     total_score = 0.0
     section_scores: dict[str, list[float]] = defaultdict(list)
+    answer_evaluations: list[dict[str, object]] = []
 
     # ONE batched LLM call for all questions (1 API request per interview, not N).
     llm_results = _batch_llm_evaluate(questions, db)
@@ -378,23 +482,12 @@ def evaluate_interview(
         _upsert_llm_fields(db, session_id, question, evaluation)
         total_score += float(evaluation["score"])
         scored += 1
-        section_scores[str(evaluation.get("section") or "project")].append(float(evaluation["score"]))
+        normalized = _summary_ready_evaluation(evaluation)
+        answer_evaluations.append(normalized)
+        section_scores[str(evaluation.get("section") or "project")].append(float(normalized["overall_answer_score"]))
 
-    session.llm_eval_status = "completed"
-
-    # Update ATS pipeline stage to interview_completed
-    if session.result and session.result.stage != "interview_completed":
-        record_stage_change(
-            db,
-            session.result,
-            stage="interview_completed",
-            changed_by_role="system",
-            changed_by_user_id=None,
-            note="Interview evaluation completed"
-        )
-
+    summary, section_summary = _finalize_interview_evaluation(db, session, answer_evaluations, section_scores)
     db.commit()
 
-    avg_score = round(total_score / scored, 1) if scored else 0.0
-    section_summary = {key: round(sum(values) / len(values), 1) for key, values in section_scores.items() if values}
+    avg_score = round(float(summary.get("overall_interview_score") or (total_score / scored if scored else 0.0)), 1)
     return {"ok": True, "session_id": session_id, "questions_evaluated": scored, "average_llm_score": avg_score, "section_summary": section_summary}

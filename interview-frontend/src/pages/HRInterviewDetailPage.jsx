@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, XCircle, AlertTriangle, Camera, Clock, RefreshCw, Sparkles } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, Camera, Clock, RefreshCw, Sparkles, Download } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
@@ -19,6 +19,215 @@ function scoreColor(score) {
   if (n >= 60) return "text-blue-600 dark:text-blue-400";
   if (n >= 40) return "text-amber-600 dark:text-amber-400";
   return "text-red-500 dark:text-red-400";
+}
+
+function pdfSafeText(value) {
+  return String(value ?? "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2022/g, "*")
+    .replace(/\u2026/g, "...")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapePdfText(value) {
+  return pdfSafeText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function wrapPdfText(text, fontSize, maxWidth) {
+  const words = pdfSafeText(text || "-").split(" ");
+  const averageCharWidth = fontSize * 0.48;
+  const maxChars = Math.max(16, Math.floor(maxWidth / averageCharWidth));
+  const lines = [];
+  let line = "";
+
+  words.forEach((word) => {
+    if (word.length > maxChars) {
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      for (let i = 0; i < word.length; i += maxChars) lines.push(word.slice(i, i + maxChars));
+      return;
+    }
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  });
+
+  if (line) lines.push(line);
+  return lines.length ? lines : ["-"];
+}
+
+function buildInterviewPdf({ interview, questions, summary, sectionSummary, avgLLMScore, suspiciousEvents, hrReview, draftRedFlags, draftNotes }) {
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 44;
+  const contentWidth = pageWidth - margin * 2;
+  const bottom = 48;
+  const pages = [];
+  let commands = [];
+  let pageNumber = 0;
+  let y = pageHeight - margin;
+
+  const addRaw = (cmd) => commands.push(cmd);
+  const setColor = (rgb) => addRaw(`${rgb.join(" ")} rg`);
+  const setStroke = (rgb) => addRaw(`${rgb.join(" ")} RG`);
+  const addTextLine = (text, x, lineY, size = 10, font = "F1", color = [0.15, 0.18, 0.24]) => {
+    setColor(color);
+    addRaw(`BT /${font} ${size} Tf ${x.toFixed(2)} ${lineY.toFixed(2)} Td (${escapePdfText(text)}) Tj ET`);
+  };
+  const drawLine = (lineY, color = [0.82, 0.85, 0.9]) => {
+    setStroke(color);
+    addRaw(`0.7 w ${margin.toFixed(2)} ${lineY.toFixed(2)} m ${(pageWidth - margin).toFixed(2)} ${lineY.toFixed(2)} l S`);
+  };
+  const finishPage = () => {
+    addTextLine(`Page ${pageNumber}`, pageWidth - margin - 45, 24, 8, "F1", [0.45, 0.5, 0.58]);
+    pages.push(commands.join("\n"));
+  };
+  const startPage = () => {
+    commands = [];
+    pageNumber += 1;
+    y = pageHeight - margin;
+    addTextLine("HR Interview Review", margin, y, 9, "F2", [0.16, 0.36, 0.72]);
+    addTextLine(formatDateTime(interview.created_at || interview.updated_at || new Date().toISOString()), pageWidth - margin - 170, y, 8, "F1", [0.45, 0.5, 0.58]);
+    y -= 18;
+    drawLine(y);
+    y -= 20;
+  };
+  const ensureSpace = (needed) => {
+    if (y - needed >= bottom) return;
+    finishPage();
+    startPage();
+  };
+  const addHeading = (text) => {
+    ensureSpace(36);
+    y -= 4;
+    addTextLine(text, margin, y, 14, "F2", [0.08, 0.12, 0.2]);
+    y -= 10;
+    drawLine(y, [0.7, 0.78, 0.9]);
+    y -= 16;
+  };
+  const addLabelValue = (label, value, x, width) => {
+    addTextLine(label, x, y, 8, "F2", [0.42, 0.47, 0.55]);
+    const lines = wrapPdfText(value || "-", 10, width);
+    lines.slice(0, 3).forEach((line, idx) => addTextLine(line, x, y - 14 - idx * 12, 10, "F1", [0.1, 0.14, 0.2]));
+    return 18 + Math.min(lines.length, 3) * 12;
+  };
+  const addParagraph = (label, value, options = {}) => {
+    const size = options.size || 9.5;
+    const lines = wrapPdfText(value || "-", size, options.width || contentWidth);
+    ensureSpace(18 + lines.length * (size + 3));
+    if (label) {
+      addTextLine(label, margin, y, 8, "F2", options.labelColor || [0.35, 0.4, 0.48]);
+      y -= 13;
+    }
+    lines.forEach((line) => {
+      addTextLine(line, options.x || margin, y, size, "F1", options.color || [0.17, 0.22, 0.3]);
+      y -= size + 4;
+    });
+    y -= options.after || 6;
+  };
+  const addList = (label, items, color) => {
+    const list = Array.isArray(items) ? items : [];
+    addParagraph(label, list.length ? list.map((item) => `* ${item}`).join(" ") : "-", { labelColor: color, after: 2 });
+  };
+  const scoreValue = (q) => q.evaluation?.overall_answer_score ?? q.llm_score ?? q.ai_answer_score;
+
+  startPage();
+
+  addTextLine(interview.candidate?.name || "Candidate", margin, y, 22, "F2", [0.06, 0.1, 0.18]);
+  y -= 18;
+  addTextLine(interview.job?.title || "Role", margin, y, 11, "F1", [0.38, 0.43, 0.5]);
+  y -= 26;
+
+  const colWidth = (contentWidth - 24) / 3;
+  let blockHeight = addLabelValue("Application", interview.application_id || interview.interview_id || "-", margin, colWidth);
+  blockHeight = Math.max(blockHeight, addLabelValue("Status", interview.status || "-", margin + colWidth + 12, colWidth));
+  blockHeight = Math.max(blockHeight, addLabelValue("Avg AI Score", avgLLMScore !== null ? `${avgLLMScore}%` : "Pending", margin + (colWidth + 12) * 2, colWidth));
+  y -= blockHeight + 8;
+
+  blockHeight = addLabelValue("Interview Score", `${Math.round(Number(summary.overall_interview_score || 0))}%`, margin, colWidth);
+  blockHeight = Math.max(blockHeight, addLabelValue("Communication", `${Math.round(Number(summary.communication_score || 0))}%`, margin + colWidth + 12, colWidth));
+  blockHeight = Math.max(blockHeight, addLabelValue("Recommendation", summary.hiring_recommendation || "Pending", margin + (colWidth + 12) * 2, colWidth));
+  y -= blockHeight + 14;
+
+  addHeading("AI Review Summary");
+  addList("Key Strengths", summary.strengths_summary, [0.05, 0.52, 0.3]);
+  addList("Areas for Improvement", summary.weaknesses_summary, [0.72, 0.42, 0.06]);
+  if (sectionSummary && Object.keys(sectionSummary).length) {
+    addParagraph("Section Scores", Object.entries(sectionSummary).map(([section, score]) => `${section}: ${Math.round(Number(score))}%`).join("   "));
+  }
+  addParagraph("Proctoring Flags", `${suspiciousEvents.length} suspicious event${suspiciousEvents.length === 1 ? "" : "s"} recorded.`);
+
+  addHeading("Questions, Answers & AI Review");
+  (questions || []).forEach((q, idx) => {
+    ensureSpace(170);
+    const score = scoreValue(q);
+    addTextLine(`Question ${idx + 1}`, margin, y, 12, "F2", [0.08, 0.12, 0.2]);
+    addTextLine(`${q.difficulty || "N/A"} | ${q.section || "N/A"} | Score: ${q.skipped ? "Skipped" : score != null ? `${Math.round(Number(score))}/100` : "Pending"}`, pageWidth - margin - 210, y, 9, "F2", [0.16, 0.36, 0.72]);
+    y -= 17;
+    addParagraph("Question", q.text, { after: 2 });
+    addParagraph("Candidate Answer", q.answer_text || (q.skipped ? "(skipped)" : "-"), { after: 2 });
+    addParagraph("Reference Answer", q.reference_answer || "-", { after: 2 });
+    addParagraph(
+      "Score Breakdown",
+      [
+        `Relevance: ${q.evaluation?.relevance != null ? `${Math.round(Number(q.evaluation.relevance))}%` : "-"}`,
+        `Technical: ${q.evaluation?.technical_correctness != null ? `${Math.round(Number(q.evaluation.technical_correctness))}%` : "-"}`,
+        `Clarity: ${q.evaluation?.clarity != null ? `${Math.round(Number(q.evaluation.clarity))}%` : "-"}`,
+        `Communication: ${q.evaluation?.confidence_communication != null ? `${Math.round(Number(q.evaluation.confidence_communication))}%` : "-"}`,
+      ].join("   "),
+      { after: 2 },
+    );
+    addList("Strengths", q.evaluation?.strengths, [0.05, 0.52, 0.3]);
+    addList("Weaknesses", q.evaluation?.weaknesses, [0.72, 0.42, 0.06]);
+    addParagraph("Improvement Suggestion", q.evaluation?.improvement_suggestion || q.feedback || q.llm_feedback || "-", { after: 8 });
+    drawLine(y + 4, [0.9, 0.92, 0.95]);
+  });
+
+  if (hrReview || interview.status) {
+    addHeading("HR Review");
+    addParagraph("Decision / Status", interview.status || "-");
+    addParagraph("Scores", `Final: ${hrReview?.final_score ?? "-"}   Behavioral: ${hrReview?.behavioral_score ?? "-"}   Communication: ${hrReview?.communication_score ?? "-"}`);
+    addParagraph("Red Flags", hrReview?.red_flags || draftRedFlags || "-");
+    addParagraph("Notes", hrReview?.notes || draftNotes || "-");
+  }
+
+  finishPage();
+
+  const objects = [];
+  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+  objects.push(`<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ")}] /Count ${pages.length} >>`);
+  pages.forEach((content, i) => {
+    const pageObjectNumber = 3 + i * 2;
+    const contentObjectNumber = pageObjectNumber + 1;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${3 + pages.length * 2} 0 R /F2 ${4 + pages.length * 2} 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`);
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return pdf;
 }
 
 function ScorePill({ score, skipped }) {
@@ -48,6 +257,7 @@ export default function HRInterviewDetailPage() {
   const [saving, setSaving] = useState(false);
   const [reEvaluating, setReEvaluating] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [reEvalMessage, setReEvalMessage] = useState("");
   const [decision, setDecision] = useState("selected");
@@ -125,6 +335,43 @@ export default function HRInterviewDetailPage() {
     }
   }
 
+  function handleDownloadPdf() {
+    if (!data?.interview) return;
+    setDownloadingPdf(true);
+    setError("");
+    try {
+      const interviewData = data.interview;
+      const pdf = buildInterviewPdf({
+        interview: interviewData,
+        questions: data.questions || [],
+        summary: interviewData.evaluation_summary || {},
+        sectionSummary: data.section_summary || {},
+        avgLLMScore,
+        suspiciousEvents,
+        hrReview: data.hr_review,
+        draftRedFlags: redFlags,
+        draftNotes: notes,
+      });
+      const blob = new Blob([pdf], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const candidateName = pdfSafeText(interviewData.candidate?.name || "candidate")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "candidate";
+      link.href = url;
+      link.download = `hr-interview-review-${candidateName}-${interviewData.interview_id || interviewData.id || id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message || "Unable to generate the PDF report.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
   const suspiciousEvents = useMemo(() => (data?.events || []).filter((e) => e.suspicious), [data?.events]);
   const { avgLLMScore, pendingCount } = useMemo(() => {
     const questions = data?.questions || [];
@@ -144,7 +391,7 @@ export default function HRInterviewDetailPage() {
 
   return (
     <div className="space-y-8 pb-12">
-      <PageHeader title={`Interview — ${interview.candidate?.name || "Candidate"}`} subtitle={`${interview.job?.title || "Role"} · Application ${interview.application_id || interview.interview_id}`} actions={<div className="flex items-center gap-3 flex-wrap">{canReEvaluate && <button type="button" onClick={handleReEvaluate} disabled={reEvaluating} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold disabled:opacity-60 transition-all"><RefreshCw size={16} className={reEvaluating ? "animate-spin" : ""} />{reEvaluating ? "Starting…" : "Re-run AI Scoring"}</button>}<button type="button" onClick={handleSendFeedback} disabled={sendingFeedback} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold disabled:opacity-60 transition-all"><Sparkles size={16} />{sendingFeedback ? "Sending..." : "Send Feedback Email"}</button><EvalStatusBadge status={evalStatus} /><StatusBadge status={interview.stage} /><button type="button" className="subtle-button" onClick={() => navigate(-1)}>Back</button></div>} />
+      <PageHeader title={`Interview — ${interview.candidate?.name || "Candidate"}`} subtitle={`${interview.job?.title || "Role"} · Application ${interview.application_id || interview.interview_id}`} actions={<div className="flex items-center gap-3 flex-wrap">{canReEvaluate && <button type="button" onClick={handleReEvaluate} disabled={reEvaluating} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold disabled:opacity-60 transition-all"><RefreshCw size={16} className={reEvaluating ? "animate-spin" : ""} />{reEvaluating ? "Starting…" : "Re-run AI Scoring"}</button>}<button type="button" onClick={handleDownloadPdf} disabled={downloadingPdf} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-bold disabled:opacity-60 transition-all"><Download size={16} />{downloadingPdf ? "Preparing..." : "Download PDF"}</button><button type="button" onClick={handleSendFeedback} disabled={sendingFeedback} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold disabled:opacity-60 transition-all"><Sparkles size={16} />{sendingFeedback ? "Sending..." : "Send Feedback Email"}</button><EvalStatusBadge status={evalStatus} /><StatusBadge status={interview.stage} /><button type="button" className="subtle-button" onClick={() => navigate(-1)}>Back</button></div>} />
 
       {error && <p className="alert error">{error}</p>}
       {reEvalMessage && <p className="rounded-2xl border border-blue-200 bg-blue-50 text-blue-700 px-4 py-3 text-sm font-medium">{reEvalMessage}</p>}

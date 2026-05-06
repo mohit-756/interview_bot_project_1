@@ -176,10 +176,10 @@ Congratulations! Your application for the {role_title} position at Quadrant Tech
 Your application passed our initial screening criteria and we would like to proceed with the next step.
 
 Next Steps:
-- Log in to your candidate dashboard to schedule your interview
-- Select a convenient date and time from the available slots
+- Open the interview calendar page
+- Log in if prompted, then select a convenient date and time
 
-Dashboard Link: {dashboard_url}
+Calendar Link: {dashboard_url}
 
 We look forward to speaking with you!"""
     else:

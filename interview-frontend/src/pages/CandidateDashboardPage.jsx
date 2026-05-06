@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useId } from "react";
-import { Upload, ArrowRight, Clock, Calendar } from "lucide-react";
+import { Upload, ArrowRight, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import StepChecklist from "../components/StepChecklist";
@@ -7,10 +7,7 @@ import { candidateApi } from "../services/api";
 import HelpSupportButton from "../components/HelpSupportButton";
 import { useAnnounce } from "../hooks/useAccessibility";
 import {
-  formatInterviewDateTimeLocal,
-  getGoogleCalendarDateRange,
   resolveInterviewDateTime,
-  toDateTimeLocalInputValue,
 } from "../utils/formatters";
 
 function DetailSection({ title, children }) {
@@ -100,14 +97,11 @@ export default function CandidateDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [scheduling, setScheduling] = useState(false);
-  const [scheduleDate, setScheduleDate] = useState("");
   const [message, setMessage] = useState("");
 
   const { announce } = useAnnounce();
   const jdSelectId = useId();
   const fileInputId = useId();
-  const dateInputId = useId();
 
   const selectedJd = useMemo(() => (dashboard?.available_jds || []).find((jd) => jd.id === dashboard?.selected_jd_id) || null, [dashboard]);
   const result = dashboard?.result || null;
@@ -123,15 +117,6 @@ export default function CandidateDashboardPage() {
   const parsedResume = dashboard?.candidate?.parsed_resume || {};
   const scoreBreakdown = result?.score_breakdown || {};
   const scheduledInterviewDate = resolveInterviewDateTime(result);
-  const calendarDateRange = getGoogleCalendarDateRange(scheduledInterviewDate);
-  const interviewScheduledLabel = formatInterviewDateTimeLocal(result, "Not scheduled");
-  const googleCalendarHref = calendarDateRange
-    ? `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
-      "Interview - " + (selectedJd?.title || "Quadrant Technologies")
-    )}&dates=${calendarDateRange.startUtc}/${calendarDateRange.endUtc}&details=${encodeURIComponent(
-      "Join Link: " + (result?.interview_link || "")
-    )}`
-    : "";
 
   async function loadDashboard(jobId) {
     setLoading(true);
@@ -140,7 +125,6 @@ export default function CandidateDashboardPage() {
       const response = await candidateApi.dashboard(jobId);
       setDashboard(response);
       setMessage("");
-      setScheduleDate(toDateTimeLocalInputValue(response?.result));
       announce("Dashboard loaded successfully");
     } catch (e) {
       setError(e.message);
@@ -183,28 +167,6 @@ export default function CandidateDashboardPage() {
     } finally {
       setUploading(false);
       e.target.value = "";
-    }
-  }
-
-  async function handleScheduleInterview() {
-    if (!result?.id || !scheduleDate) {
-      setError("Pick a date first.");
-      return;
-    }
-    setScheduling(true);
-    setError("");
-    setMessage("");
-    try {
-      announce("Scheduling interview...");
-      const response = await candidateApi.scheduleInterview(result.id, scheduleDate);
-      setDashboard((current) => current ? { ...current, result: response.result } : current);
-      setMessage(response.message || "Interview scheduled.");
-      announce("Interview scheduled successfully");
-    } catch (e) {
-      setError(e.message);
-      announce(`Error: ${e.message}`, "assertive");
-    } finally {
-      setScheduling(false);
     }
   }
 
@@ -394,44 +356,14 @@ export default function CandidateDashboardPage() {
               {result.shortlisted && !interviewCompleted && !finalDecision && (
                 <section aria-labelledby="schedule-heading" className="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 rounded-3xl text-white">
                   <h3 id="schedule-heading" className="text-xl font-bold font-display mb-2">Schedule Your Interview</h3>
-                  <p className="text-blue-100 mb-6">Pick a date and time to unlock your interview link.</p>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-700 w-4 h-4" aria-hidden="true" />
-                      <label htmlFor={dateInputId} className="sr-only">Interview date and time</label>
-                      <input
-                        id={dateInputId}
-                        type="datetime-local"
-                        value={scheduleDate}
-                        onChange={(e) => setScheduleDate(e.target.value)}
-                        disabled={scheduling}
-                        className="pl-10 pr-4 py-3 rounded-2xl text-slate-900 bg-white outline-none min-w-[250px]"
-                      />
-                    </div>
-                    <button
-                      onClick={handleScheduleInterview}
-                      disabled={scheduling}
-                      aria-busy={scheduling}
-                      className="px-8 py-3 rounded-2xl bg-white text-blue-600 font-black hover:scale-[1.01] transition-all shadow-xl disabled:opacity-60"
-                    >
-                      {scheduling ? "Scheduling..." : scheduledInterviewDate ? "Reschedule" : "Schedule Interview"}
-                    </button>
-                  </div>
-                  {scheduledInterviewDate && (
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <p className="text-sm text-blue-100">Scheduled for: <span className="font-bold">{interviewScheduledLabel}</span></p>
-                      {googleCalendarHref && (
-                        <a
-                          href={googleCalendarHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium transition-colors"
-                        >
-                          <span>Add to Google Calendar</span>
-                        </a>
-                      )}
-                    </div>
-                  )}
+                  <p className="text-blue-100 mb-6">{scheduledInterviewDate ? "Your interview has a selected slot. You can update it from the calendar page." : "Open the calendar page to pick a date and time for your interview."}</p>
+                  <Link
+                    to="/candidate/schedule"
+                    className="inline-flex items-center gap-2 px-8 py-3 rounded-2xl bg-white text-blue-600 font-black hover:scale-[1.01] transition-all shadow-xl"
+                  >
+                    <span>{scheduledInterviewDate ? "View Calendar" : "Schedule Interview"}</span>
+                    <ArrowRight size={18} aria-hidden="true" />
+                  </Link>
                 </section>
               )}
             </div>

@@ -60,8 +60,9 @@ export default function LoginPage() {
     try {
       await login({ email, password, role: loginType });
       announce("Login successful. Redirecting...", "assertive");
-      const fromPath = location.state?.from;
-      if (fromPath && typeof fromPath === "string") {
+      const nextPath = new URLSearchParams(location.search).get("next");
+      const fromPath = nextPath || location.state?.from;
+      if (fromPath && typeof fromPath === "string" && fromPath.startsWith("/") && !fromPath.startsWith("//")) {
         navigate(fromPath, { replace: true });
         return;
       }

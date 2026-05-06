@@ -34,7 +34,7 @@ from models import (
 from routes.dependencies import require_role, SessionUser
 from services.pdf_report import generate_interview_pdf
 from services.pipeline import record_stage_change, stage_payload
-from services.scoring import build_application_score
+from services.scoring import build_application_score, summarize_interview
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def _normalize_answer_evaluation(value: Any) -> dict:
         "word_count": _safe_int(raw.get("word_count")) or 0,
     }
 
-    return {
+    return {
         **raw,
         "relevance": relevance,
         "technical_correctness": technical,
@@ -214,7 +214,7 @@ def list_interviews(
                 "application_id": result.application_id,
                 "candidate": {"id": candidate.id, "name": candidate.name, "email": candidate.email},
                 "job": {"id": job.id if job else None, "title": job.jd_title if job else None},
-                "status": session.status,
+                "status": "completed" if session.llm_eval_status == "completed" and session.status == "in_progress" else session.status,
                 "started_at": session.started_at,
                 "ended_at": session.ended_at,
                 "events_count": count_map.get(session.id, {}).get("events_count", 0),
@@ -270,8 +270,9 @@ def interview_detail(
     hr_review = _hr_review_from_result(result)
     job_skills = _json_dict(job.skill_scores).keys() if job else ()
 
-    questions_payload = []
-    section_scores: dict[str, list[float]] = defaultdict(list)
+    questions_payload = []
+    section_scores: dict[str, list[float]] = defaultdict(list)
+    answer_evaluations: list[dict[str, object]] = []
     
     # Sort and filter: Only show questions that were actually presented, answered, or skipped.
     # This prevents the full 8-20 question bank from cluttering the review if the interview ended early.
@@ -311,7 +312,8 @@ def interview_detail(
             ai_answer_score = _safe_float(score_breakdown.get("overall_score")) or 0.0
 
         section_name = str(q.question_type or q.topic or "project")
-        section_scores[section_name].append(ai_answer_score)
+        section_scores[section_name].append(ai_answer_score)
+        answer_evaluations.append(stored_evaluation)
 
         questions_payload.append(
             {
@@ -336,6 +338,44 @@ def interview_detail(
             }
         )
 
+    evaluation_summary = _json_dict(session.evaluation_summary_json)
+    if session.llm_eval_status == "completed" and (session.status != "completed" or not evaluation_summary):
+        evaluation_summary = summarize_interview(answer_evaluations)
+        session.status = "completed"
+        session.ended_at = session.ended_at or session.started_at
+        session.evaluation_summary_json = evaluation_summary
+
+        explanation = _json_dict(result.explanation)
+        result.explanation = {
+            **explanation,
+            "overall_interview_score": evaluation_summary.get("overall_interview_score", 0.0),
+            "communication_score": evaluation_summary.get("communication_score", 0.0),
+            "strengths_summary": evaluation_summary.get("strengths_summary", []),
+            "weaknesses_summary": evaluation_summary.get("weaknesses_summary", []),
+            "hiring_recommendation": evaluation_summary.get("hiring_recommendation"),
+        }
+
+        score_breakdown = build_application_score(
+            resume_score=float(explanation.get("final_resume_score") or result.score or 0.0),
+            skills_match_score=float(explanation.get("matched_percentage") or explanation.get("weighted_skill_score") or 0.0),
+            interview_score=float(evaluation_summary.get("overall_interview_score") or 0.0),
+            communication_score=float(evaluation_summary.get("communication_score") or 0.0),
+            weights_json=job.score_weights_json if job and getattr(job, "score_weights_json", None) else None,
+        )
+        result.score_breakdown_json = score_breakdown
+        result.final_score = float(score_breakdown["final_weighted_score"])
+        result.recommendation = score_breakdown["recommendation"]
+
+        if result.stage != "interview_completed":
+            record_stage_change(
+                db,
+                result,
+                stage="interview_completed",
+                changed_by_role="system",
+                changed_by_user_id=None,
+                note="Interview evaluation repaired from HR review",
+            )
+        db.commit()
     return {
         "ok": True,
         "interview": {
@@ -348,7 +388,7 @@ def interview_detail(
             "started_at": session.started_at,
             "ended_at": session.ended_at,
             "llm_eval_status": session.llm_eval_status or "pending",
-            "evaluation_summary": _json_dict(session.evaluation_summary_json),
+            "evaluation_summary": evaluation_summary,
         },
         "questions": questions_payload,
         "events": [

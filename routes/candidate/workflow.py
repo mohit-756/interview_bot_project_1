@@ -344,7 +344,7 @@ def upload_resume(
     db.commit()
     db.refresh(result)
 
-    dashboard_url = f"{config.FRONTEND_URL.rstrip('/')}/#/login"
+    dashboard_url = f"{config.FRONTEND_URL.rstrip('/')}/#/login?next=%2Fcandidate%2Fschedule" if result.shortlisted else f"{config.FRONTEND_URL.rstrip('/')}/#/login"
     try:
         feedback_items = []
         if explanation:
@@ -483,7 +483,7 @@ def upload_resume_s3(
     db.commit()
     db.refresh(result)
 
-    dashboard_url = f"{config.FRONTEND_URL.rstrip('/')}/#/login"
+    dashboard_url = f"{config.FRONTEND_URL.rstrip('/')}/#/login?next=%2Fcandidate%2Fschedule" if result.shortlisted else f"{config.FRONTEND_URL.rstrip('/')}/#/login"
     try:
         feedback_items = []
         if explanation:
