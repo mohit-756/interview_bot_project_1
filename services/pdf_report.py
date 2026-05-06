@@ -64,6 +64,8 @@ def generate_interview_pdf(session: InterviewSession, db: Session, return_s3_url
     proctor_events = db.query(ProctorEvent).filter(ProctorEvent.session_id == session.id).all()
     
     pdf = InterviewReportPDF()
+    pdf.set_margins(left=10, top=10, right=10)
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.alias_nb_pages()
     pdf.add_page()
     
@@ -91,6 +93,7 @@ def generate_interview_pdf(session: InterviewSession, db: Session, return_s3_url
     pdf.ln(2)
     
     eval_summary = session.evaluation_summary_json or {}
+    pdf.set_x(pdf.l_margin)
     pdf.multi_cell(0, 6, f"AI Recommendation: {result.recommendation or 'N/A'}")
     pdf.ln(2)
     pdf.cell(50, 6, "Overall Interview Score:")
@@ -110,6 +113,7 @@ def generate_interview_pdf(session: InterviewSession, db: Session, return_s3_url
         # Question Header
         pdf.set_font("helvetica", "B", 10)
         pdf.set_text_color(50, 50, 150)
+        pdf.set_x(pdf.l_margin)
         pdf.multi_cell(0, 6, f"Q{i} [{q.question_type.upper()}]: {q.text}")
         pdf.set_text_color(0, 0, 0)
         
@@ -118,13 +122,19 @@ def generate_interview_pdf(session: InterviewSession, db: Session, return_s3_url
         ans_text = q.answer_text if q.answer_text else "(No answer provided or skipped)"
         if q.skipped:
             ans_text = "(Skipped)"
+        # Truncate very long answers to prevent rendering issues
+        if len(ans_text) > 500:
+            ans_text = ans_text[:500] + "... (truncated)"
+        pdf.set_x(pdf.l_margin)
         pdf.multi_cell(0, 6, f"Candidate Answer: {ans_text}")
         
         # AI Feedback
         if q.llm_feedback:
             pdf.set_font("helvetica", "", 9)
             pdf.set_text_color(80, 80, 80)
-            pdf.multi_cell(0, 5, f"AI Feedback: {q.llm_feedback}")
+            feedback_text = (q.llm_feedback[:500] + "...") if len(q.llm_feedback) > 500 else q.llm_feedback
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(0, 5, f"AI Feedback: {feedback_text}")
             pdf.set_text_color(0, 0, 0)
             
         pdf.ln(4)
