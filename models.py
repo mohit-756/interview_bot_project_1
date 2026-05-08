@@ -312,3 +312,45 @@ class UserPreferences(Base):
     role = Column(String(20), nullable=False)
     preferences_json = Column(JSON, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class InterviewSlot(Base):
+    """2-Phase workflow: Interview time slots created by HR."""
+    __tablename__ = "interview_slots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    result_id = Column(Integer, ForeignKey("results.id"), nullable=False, index=True)
+    slot_datetime = Column(DateTime, nullable=False)
+    is_selected = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    result = relationship("Result", foreign_keys=[result_id])
+
+
+class AccessToken(Base):
+    """2-Phase workflow: Public token for slot selection (no login needed)."""
+    __tablename__ = "access_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    result_id = Column(Integer, ForeignKey("results.id"), nullable=False, index=True, unique=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    used_at = Column(DateTime, nullable=True)
+
+    result = relationship("Result", foreign_keys=[result_id])
+
+
+class Round2Interview(Base):
+    """2-Phase workflow: In-person Round 2 interview details."""
+    __tablename__ = "round2_interviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    result_id = Column(Integer, ForeignKey("results.id"), nullable=False, index=True, unique=True)
+    interview_datetime = Column(DateTime, nullable=False)
+    location = Column(String(200), nullable=True)
+    interviewer_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    result = relationship("Result", foreign_keys=[result_id])

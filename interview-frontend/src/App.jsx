@@ -13,6 +13,8 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import HRDashboardPage from "./pages/HRDashboardPage";
 import HRCandidatesPage from "./pages/HRCandidatesPage";
 import HRJdManagementPage from "./pages/HRJdManagementPage";
+import HRTwoPhasePage from "./pages/HRTwoPhasePage";
+import SlotSelectionPage from "./pages/SlotSelectionPage";
 import CandidateDashboardPage from "./pages/CandidateDashboardPage";
 import Completed from "./pages/Completed";
 import "./App.css";
@@ -84,12 +86,15 @@ export default function App() {
         <Route path="/interview/:resultId/live" element={<Suspense fallback={<PageLoader />}><Interview /></Suspense>} />
         <Route path="/interview/:resultId/completed" element={<Completed />} />
 
+        <Route path="/select-slot/:token" element={<SlotSelectionPage />} />
+
         <Route element={<ProtectedRoute role="hr" />}>
           <Route element={<DashboardLayout />}>
             <Route path="/hr" element={<HRDashboardPage />} />
             <Route path="/hr/jds" element={<HRJdManagementPage />} />
             <Route path="/hr/jds/:jdId" element={<Suspense fallback={<PageLoader />}><HRJdDetailPage /></Suspense>} />
             <Route path="/hr/candidates" element={<HRCandidatesPage />} />
+            <Route path="/hr/2-phase" element={<HRTwoPhasePage />} />
             <Route path="/hr/pipeline" element={<Suspense fallback={<PageLoader />}><HRPipelinePage /></Suspense>} />
             <Route path="/hr/compare" element={<Suspense fallback={<PageLoader />}><CandidateComparisonPage /></Suspense>} />
             <Route path="/hr/candidates/:candidateUid" element={<Suspense fallback={<PageLoader />}><HRCandidateDetailPage /></Suspense>} />

@@ -172,6 +172,49 @@ def _run_migrations():
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_preferences_id ON user_preferences (id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_preferences_user_id ON user_preferences (user_id)"))
             logger.info("Created user_preferences table")
+        if "interview_slots" not in inspector.get_table_names():
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS interview_slots (
+                    id SERIAL PRIMARY KEY,
+                    result_id INTEGER NOT NULL,
+                    slot_datetime TIMESTAMP NOT NULL,
+                    is_selected BOOLEAN DEFAULT FALSE NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+                    FOREIGN KEY (result_id) REFERENCES results (id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_interview_slots_result_id ON interview_slots (result_id)"))
+            logger.info("Created interview_slots table")
+        if "access_tokens" not in inspector.get_table_names():
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS access_tokens (
+                    id SERIAL PRIMARY KEY,
+                    result_id INTEGER NOT NULL UNIQUE,
+                    token VARCHAR(64) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+                    expires_at TIMESTAMP,
+                    used_at TIMESTAMP,
+                    FOREIGN KEY (result_id) REFERENCES results (id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_access_tokens_result_id ON access_tokens (result_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_access_tokens_token ON access_tokens (token)"))
+            logger.info("Created access_tokens table")
+        if "round2_interviews" not in inspector.get_table_names():
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS round2_interviews (
+                    id SERIAL PRIMARY KEY,
+                    result_id INTEGER NOT NULL UNIQUE,
+                    interview_datetime TIMESTAMP NOT NULL,
+                    location VARCHAR(200),
+                    interviewer_notes TEXT,
+                    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+                    updated_at TIMESTAMP DEFAULT NOW() NOT NULL,
+                    FOREIGN KEY (result_id) REFERENCES results (id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_round2_interviews_result_id ON round2_interviews (result_id)"))
+            logger.info("Created round2_interviews table")
 
 
 _run_migrations()

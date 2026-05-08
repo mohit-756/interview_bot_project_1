@@ -344,6 +344,20 @@ export const hrApi = {
   answerFAQQuestion: (questionId, payload) => request({ method: "post", url: `/faq/questions/${questionId}/answer`, data: payload }),
   updateFAQQuestion: (questionId, payload) => request({ method: "put", url: `/faq/questions/${questionId}`, data: payload }),
   dismissFAQQuestion: (questionId) => request({ method: "post", url: `/faq/questions/${questionId}/dismiss` }),
+
+  // 2-Phase Workflow
+  createInterviewSlots: (resultId, slots) => request({ method: "post", url: `/hr/candidates/${resultId}/create-slots`, data: { slots } }),
+  getInterviewSlots: (resultId) => request({ method: "get", url: `/hr/candidates/${resultId}/slots` }),
+  scheduleRound2Interview: (resultId, payload) => request({ method: "post", url: `/hr/candidates/${resultId}/schedule-round2`, data: payload }),
+  getRound2Details: (resultId) => request({ method: "get", url: `/hr/candidates/${resultId}/round2` }),
+};
+
+// ── Public API (no auth required) ─────────────────────────────────────────────
+export const publicApi = {
+  getSlotPickerData: (token) => request({ method: "get", url: `/public/slot-picker/${token}`, skipAuth: true }),
+  selectInterviewSlot: (token, slotId) => request({ method: "post", url: `/public/select-slot/${token}`, data: { slot_id: slotId }, skipAuth: true }),
+  getInterviewAccess: (token) => request({ method: "get", url: `/public/interview-access/${token}`, skipAuth: true }),
+  getRound2DetailsPublic: (token) => request({ method: "get", url: `/public/round2-details/${token}`, skipAuth: true }),
 };
 
 // ── Interview ─────────────────────────────────────────────────────────────────
@@ -368,4 +382,3 @@ export const proctorApi = {
     return request({ method: "post", url: "/proctor/frame", data: formData });
   },
 };
-

@@ -14,6 +14,7 @@ export default function Sidebar({ isOpen = true, onClose, collapsed = false, onM
   const hrLinks = [
     { name: "Dashboard",         path: "/hr",              icon: LayoutDashboard },
     { name: "Candidates",        path: "/hr/candidates",   icon: Users },
+    { name: "2-Phase Workflow",  path: "/hr/2-phase",      icon: Columns3 },
     { name: "Pipeline",          path: "/hr/pipeline",      icon: Columns3 },
     { name: "JD Management",     path: "/hr/jds",          icon: FileText },
     { name: "Score Matrix",      path: "/hr/matrix",        icon: LayoutGrid },

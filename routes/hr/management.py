@@ -18,7 +18,7 @@ from ai_engine.phase1.scoring import compute_interview_scoring, compute_resume_s
 from ai_engine.phase1.matching import extract_skills_from_jd, extract_text_from_file
 from database import get_db
 from services.llm.client import extract_jd_requirements, extract_skills as llm_extract_skills
-from models import Candidate, InterviewSession, JobDescription, Result, ApplicationStageHistory
+from models import Candidate, InterviewSession, JobDescription, Result, ApplicationStageHistory, InterviewSlot, AccessToken, Round2Interview
 from routes.common import (
     UPLOAD_DIR,
     _latest_interview_session,
@@ -1668,3 +1668,182 @@ def hr_export_interview_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2-PHASE WORKFLOW — HR MANAGEMENT ROUTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/hr/candidates/{result_id}/create-slots")
+def create_interview_slots(
+    result_id: int,
+    payload: dict,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+):
+    """HR creates interview time slots for Round 1 AI interview."""
+    import secrets
+
+    result = db.query(Result).filter(Result.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    if not job or job.company_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    slots_data = payload.get("slots", [])
+    if not slots_data or len(slots_data) < 1:
+        raise HTTPException(status_code=400, detail="Provide at least 1 slot")
+
+    # Delete existing slots for this result
+    db.query(InterviewSlot).filter(InterviewSlot.result_id == result_id).delete()
+
+    # Create new slots
+    for slot_str in slots_data:
+        slot_datetime = datetime.fromisoformat(slot_str)
+        slot = InterviewSlot(result_id=result_id, slot_datetime=slot_datetime)
+        db.add(slot)
+
+    # Create or refresh access token
+    existing_token = db.query(AccessToken).filter(AccessToken.result_id == result_id).first()
+    if not existing_token:
+        token_str = secrets.token_urlsafe(32)
+        access_token = AccessToken(result_id=result_id, token=token_str)
+        db.add(access_token)
+
+    # Update result stage
+    result.stage = "slots_created"
+    result.stage_updated_at = datetime.utcnow()
+
+    db.commit()
+
+    token = db.query(AccessToken).filter(AccessToken.result_id == result_id).first()
+
+    return {
+        "ok": True,
+        "result_id": result_id,
+        "token": token.token,
+        "slot_count": len(slots_data),
+        "slot_picker_url": f"/select-slot/{token.token}",
+    }
+
+
+@router.get("/hr/candidates/{result_id}/slots")
+def get_interview_slots(
+    result_id: int,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+):
+    """HR views interview slots for a candidate."""
+    result = db.query(Result).filter(Result.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    if not job or job.company_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    slots = db.query(InterviewSlot).filter(InterviewSlot.result_id == result_id).all()
+    access_token = db.query(AccessToken).filter(AccessToken.result_id == result_id).first()
+
+    return {
+        "ok": True,
+        "result_id": result_id,
+        "slots": [
+            {
+                "id": slot.id,
+                "datetime": slot.slot_datetime.isoformat(),
+                "is_selected": slot.is_selected,
+            }
+            for slot in slots
+        ],
+        "selected_slot": next(
+            (slot.slot_datetime.isoformat() for slot in slots if slot.is_selected),
+            None
+        ),
+        "access_token": access_token.token if access_token else None,
+        "token_used": access_token.used_at is not None if access_token else False,
+    }
+
+
+@router.post("/hr/candidates/{result_id}/schedule-round2")
+def schedule_round2_interview(
+    result_id: int,
+    payload: dict,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+):
+    """HR schedules Round 2 in-person interview for selected candidates."""
+    result = db.query(Result).filter(Result.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    if not job or job.company_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    interview_datetime_str = payload.get("interview_datetime")
+    location = payload.get("location", "")
+    notes = payload.get("notes", "")
+
+    if not interview_datetime_str:
+        raise HTTPException(status_code=400, detail="Missing interview_datetime")
+
+    interview_datetime = datetime.fromisoformat(interview_datetime_str)
+
+    # Delete existing Round 2 if any
+    db.query(Round2Interview).filter(Round2Interview.result_id == result_id).delete()
+
+    # Create Round 2
+    round2 = Round2Interview(
+        result_id=result_id,
+        interview_datetime=interview_datetime,
+        location=location,
+        interviewer_notes=notes,
+    )
+    db.add(round2)
+
+    # Update result stage
+    result.stage = "final_selected"
+    result.stage_updated_at = datetime.utcnow()
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "result_id": result_id,
+        "round2_datetime": interview_datetime.isoformat(),
+        "location": location,
+    }
+
+
+@router.get("/hr/candidates/{result_id}/round2")
+def get_round2_details(
+    result_id: int,
+    current_user: SessionUser = Depends(require_role("hr")),
+    db: Session = Depends(get_db),
+):
+    """HR views Round 2 details for a candidate."""
+    result = db.query(Result).filter(Result.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
+    if not job or job.company_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    round2 = db.query(Round2Interview).filter(Round2Interview.result_id == result_id).first()
+
+    if not round2:
+        return {"ok": True, "round2": None}
+
+    return {
+        "ok": True,
+        "round2": {
+            "interview_datetime": round2.interview_datetime.isoformat(),
+            "location": round2.location,
+            "notes": round2.interviewer_notes,
+        }
+    }
