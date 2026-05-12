@@ -205,23 +205,7 @@ def list_interviews(
         .join(Result, InterviewSession.result_id == Result.id)
         .join(JobDescription, Result.job_id == JobDescription.id)
         .options(joinedload(InterviewSession.result), joinedload(InterviewSession.candidate))
-        .filter(JobDescription.company_id == current_user.user_id)
-        .all()
-    )
-
-    counts = (
-        db.query(
-            ProctorEvent.session_id,
-            func.count(ProctorEvent.id).label("events_count"),
-            func.sum(
-                case(
-                    (ProctorEvent.event_type.in_(("periodic", "baseline")), 0),
-                    else_=1,
-                )
-            ).label("suspicious_count"),
-        )
-        .group_by(ProctorEvent.session_id)
-        .all()
+.all()
     )
     count_map = {
         row.session_id: {

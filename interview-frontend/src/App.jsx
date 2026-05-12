@@ -28,7 +28,6 @@ const HRAnalyticsPage = lazy(() => import("./pages/HRAnalyticsPage"));
 const HRBackupPage = lazy(() => import("./pages/HRBackupPage"));
 const HRPipelinePage = lazy(() => import("./pages/HRPipelinePage"));
 const CandidateComparisonPage = lazy(() => import("./pages/CandidateComparisonPage"));
-const FinalResultPage = lazy(() => import("./pages/FinalResultPage"));
 const CandidateSchedulePage = lazy(() => import("./pages/CandidateSchedulePage"));
 
 function PageLoader() {
@@ -105,7 +104,7 @@ export default function App() {
           <Route element={<DashboardLayout />}>
             <Route path="/candidate" element={<CandidateDashboardPage />} />
             <Route path="/candidate/schedule" element={<Suspense fallback={<PageLoader />}><CandidateSchedulePage /></Suspense>} />
-            <Route path="/interview/result" element={<Suspense fallback={<PageLoader />}><FinalResultPage /></Suspense>} />
+            <Route path="/interview/result" element={<Navigate to="/candidate" replace />} />
           </Route>
         </Route>
 

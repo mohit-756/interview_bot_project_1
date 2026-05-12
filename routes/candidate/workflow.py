@@ -163,7 +163,7 @@ def candidate_all_results(
     current_user: SessionUser = Depends(require_role("candidate")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    """Return results for all JDs the candidate has applied to."""
+    """Return results for all JDs the candidate has applied to (safe data - no scores)."""
     candidate = get_candidate_or_404(db, current_user.user_id)
     if ensure_candidate_profile(candidate, db):
         db.commit()
@@ -179,21 +179,27 @@ def candidate_all_results(
     available_jds = list_active_jds(db)
     jd_map = {jd["id"]: jd for jd in available_jds}
 
-    results_with_jd_info = []
+    applications = []
     for r in results:
-        serialized = serialize_result(r)
         jd_info = jd_map.get(r.job_id, {})
-        results_with_jd_info.append({
-            **serialized,
-            "jd_title": jd_info.get("title", "Unknown Role"),
+        status = "under_review"
+        if r.shortlisted:
+            status = "selected"
+        elif r.stage and r.stage.key == "rejected":
+            status = "rejected"
+        
+        applications.append({
             "jd_id": r.job_id,
+            "jd_title": jd_info.get("title", "Unknown Role"),
+            "jd_qualify_score": jd_info.get("qualify_score"),
+            "status": status,
+            "applied_at": r.created_at.isoformat() if r.created_at else None,
         })
 
     return {
         "ok": True,
-        "results": results_with_jd_info,
+        "applications": applications,
         "available_jds": available_jds,
-        "selected_jd_id": candidate.selected_jd_id,
     }
 
 
@@ -206,9 +212,51 @@ def candidate_select_jd(
     candidate = get_candidate_or_404(db, current_user.user_id)
     selected_jd = _selected_jd_or_404(db, payload.jd_id)
 
+    logger.info(f"SELECT_JD: candidate_id={candidate.id}, jd_id={selected_jd.id}, resume_path={bool(candidate.resume_path)}, resume_text={bool(candidate.resume_text)}")
+
     candidate.selected_jd_id = selected_jd.id
     db.commit()
     db.refresh(candidate)
+
+    logger.info(f"SELECT_JD: resume_path={candidate.resume_path}, resume_text_len={len(candidate.resume_text or '')}")
+
+    result_data = None
+    if candidate.resume_path and (candidate.resume_text or "").strip():
+        try:
+            logger.info(f"SELECT_JD running resume screening for candidate_id={candidate.id}, jd_id={selected_jd.id}")
+            score, explanation, _ = evaluate_resume_for_job(candidate, selected_jd)
+            
+            result = upsert_result(
+                db,
+                candidate.id,
+                selected_jd.id,
+                score,
+                explanation,
+                cutoff_score=float(selected_jd.qualify_score if selected_jd.qualify_score is not None else 65.0),
+                job=selected_jd,
+            )
+            db.commit()
+            db.refresh(result)
+            
+            result_data = serialize_result(result)
+            logger.info(f"SELECT_JD screening complete: score={score}, shortlisted={result.shortlisted}, stage={result.stage}")
+            
+            return {
+                "ok": True,
+                "selected_jd_id": candidate.selected_jd_id,
+                "jd": {
+                    "id": selected_jd.id,
+                    "title": selected_jd.title,
+                    "qualify_score": float(selected_jd.qualify_score if selected_jd.qualify_score is not None else 65.0),
+                    "total_questions": int(selected_jd.total_questions if selected_jd.total_questions is not None else 8),
+                },
+                "result": result_data,
+            }
+        except Exception as e:
+            logger.error(f"SELECT_JD screening failed: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+
     return {
         "ok": True,
         "selected_jd_id": candidate.selected_jd_id,
@@ -218,6 +266,7 @@ def candidate_select_jd(
             "qualify_score": float(selected_jd.qualify_score if selected_jd.qualify_score is not None else 65.0),
             "total_questions": int(selected_jd.total_questions if selected_jd.total_questions is not None else 8),
         },
+        "result": result_data,
     }
 
 

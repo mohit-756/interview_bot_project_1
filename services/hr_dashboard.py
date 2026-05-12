@@ -49,20 +49,20 @@ def _job_title(job: JobDescription | None) -> str:
 def build_hr_dashboard_analytics(
     db: Session,
     *,
-    hr_id: int,
+    hr_id: int | None = None,
     selected_job_id: int | None = None,
 ) -> dict[str, object]:
-    jobs = (
-        db.query(JobDescription)
-        .filter(JobDescription.company_id == hr_id)
-        .order_by(JobDescription.id.desc())
-        .all()
-    )
+    query_jobs = db.query(JobDescription)
+    if hr_id is not None:
+        query_jobs = query_jobs.filter(JobDescription.company_id == hr_id)
+    jobs = query_jobs.order_by(JobDescription.id.desc()).all()
+    
+    query_results = db.query(Result)
+    if hr_id is not None:
+        query_results = query_results.join(JobDescription, Result.job_id == JobDescription.id).filter(JobDescription.company_id == hr_id)
     results = (
-        db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
+        query_results
         .options(joinedload(Result.sessions), joinedload(Result.candidate), joinedload(Result.job))
-        .filter(JobDescription.company_id == hr_id)
         .order_by(Result.id.desc())
         .all()
     )

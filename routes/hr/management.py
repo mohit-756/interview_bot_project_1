@@ -154,24 +154,19 @@ def _serialize_candidate_summary(candidate: Candidate, result: Result | None) ->
 # 1) What this does: scopes candidate results to the current HR's jobs.
 # 2) Why needed: prevents cross-company access and keeps downstream queries consistent.
 # 3) How it works: joins results to jobs and preloads related data once.
-def _candidate_result_scope(db: Session, hr_id: int):
+def _candidate_result_scope(db: Session):
     return (
         db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
         .options(
             joinedload(Result.candidate).joinedload(Candidate.selected_jd),
             joinedload(Result.job),
             joinedload(Result.sessions),
         )
-        .filter(JobDescription.company_id == hr_id)
     )
 
 
-# 1) What this does: returns de-duplicated candidate summaries for one HR.
-# 2) Why needed: the candidate manager should show one row per candidate, not one row per application.
-# 3) How it works: walks latest results first and keeps the first summary for each candidate.
-def _candidate_summaries(db: Session, hr_id: int) -> list[dict[str, object]]:
-    scoped_results = _candidate_result_scope(db, hr_id).order_by(Result.id.desc()).all()
+def _candidate_summaries(db: Session) -> list[dict[str, object]]:
+    scoped_results = _candidate_result_scope(db).order_by(Result.id.desc()).all()
     summaries_by_candidate: dict[int, dict[str, object]] = {}
     application_counts: dict[int, int] = {}
     jd_ids_per_candidate: dict[int, set] = {}
@@ -287,12 +282,8 @@ def _serialize_jd(jd: JobDescription) -> dict[str, object]:
     }
 
 
-def _get_hr_owned_jd_or_404(db: Session, jd_id: int, hr_id: int) -> JobDescription:
-    jd = (
-        db.query(JobDescription)
-        .filter(JobDescription.id == jd_id, JobDescription.company_id == hr_id)
-        .first()
-    )
+def _get_hr_jd_or_404(db: Session, jd_id: int) -> JobDescription:
+    jd = db.query(JobDescription).filter(JobDescription.id == jd_id).first()
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
     return jd
@@ -308,7 +299,6 @@ def hr_create_jd(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     jd = JobDescription(
-        company_id=current_user.user_id,
         title=payload.title.strip(),
         jd_title=payload.title.strip(),
         jd_text=payload.jd_text.strip(),
@@ -332,15 +322,12 @@ def hr_create_jd(
     return {"ok": True, "jd": _serialize_jd(jd)}
 
 
-# 1) What this does: lists all HR-owned JD configs.
-# 2) Why needed: UI dropdowns and HR config page need JD inventory.
-# 3) How it works: resolves owned legacy ids and fetches matching config rows.
 @jd_router.get("")
 def hr_list_jds(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    jds = db.query(JobDescription).filter(JobDescription.company_id == current_user.user_id).order_by(JobDescription.id.desc()).all()
+    jds = db.query(JobDescription).order_by(JobDescription.id.desc()).all()
     return {"ok": True, "jds": [_serialize_jd(row) for row in jds]}
 
 
@@ -353,7 +340,7 @@ def hr_get_jd(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    jd = _get_hr_owned_jd_or_404(db, jd_id, current_user.user_id)
+    jd = _get_hr_jd_or_404(db, jd_id)
     return {"ok": True, "jd": _serialize_jd(jd)}
 
 
@@ -367,7 +354,7 @@ def hr_update_jd(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    jd = _get_hr_owned_jd_or_404(db, jd_id, current_user.user_id)
+    jd = _get_hr_jd_or_404(db, jd_id)
 
     if payload.title is not None:
         jd.title = payload.title.strip()
@@ -411,7 +398,7 @@ def hr_toggle_jd_active(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    jd = _get_hr_owned_jd_or_404(db, jd_id, current_user.user_id)
+    jd = _get_hr_jd_or_404(db, jd_id)
     next_active = not bool(jd.is_active)
     jd.is_active = next_active
     db.commit()
@@ -425,33 +412,15 @@ def hr_delete_jd(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    jd = _get_hr_owned_jd_or_404(db, jd_id, current_user.user_id)
+    jd = _get_hr_jd_or_404(db, jd_id)
     
-    # Check only for results belonging to this HR (not all results in system)
-    applications_count = (
-        db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
-        .filter(Result.job_id == jd_id, JobDescription.company_id == current_user.user_id)
-        .count()
-    )
+    applications_count = db.query(Result).filter(Result.job_id == jd_id).count()
     if applications_count:
         raise HTTPException(status_code=400, detail="Cannot delete a JD with active applications")
 
-    # Only check candidates that have results for THIS HR's JDs
-    # (Candidates might have selected this JD but if they never applied to our jobs, it's ok)
-    # Actually - remove this check entirely, or make it less strict
-    # Just unselect candidates if they selected this JD
     candidates_with_this_jd = db.query(Candidate).filter(Candidate.selected_jd_id == jd_id).all()
     for candidate in candidates_with_this_jd:
-        # Only unlink if candidate has no results with this HR
-        has_our_results = (
-            db.query(Result)
-            .join(JobDescription, Result.job_id == JobDescription.id)
-            .filter(Result.candidate_id == candidate.id, JobDescription.company_id == current_user.user_id)
-            .first()
-        )
-        if not has_our_results:
-            candidate.selected_jd_id = None
+        candidate.selected_jd_id = None
 
     deleted_upload = False
     if jd.jd_text:
@@ -474,12 +443,7 @@ def hr_dashboard(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    jobs = (
-        db.query(JobDescription)
-        .filter(JobDescription.company_id == current_user.user_id)
-        .order_by(JobDescription.id.desc())
-        .all()
-    )
+    jobs = db.query(JobDescription).order_by(JobDescription.id.desc()).all()
     selected_job = None
     if job_id:
         selected_job = next((job for job in jobs if job.id == job_id), None)
@@ -524,7 +488,7 @@ def hr_dashboard(
 
     analytics = build_hr_dashboard_analytics(
         db,
-        hr_id=current_user.user_id,
+        hr_id=None,
         selected_job_id=selected_job.id if selected_job else None,
     )
     jobs_payload = [
@@ -591,9 +555,7 @@ def hr_dashboard_calendar(
     
     results = (
         db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
         .filter(
-            JobDescription.company_id == current_user.user_id,
             Result.interview_datetime.isnot(None),
             Result.interview_datetime >= start_date,
             Result.interview_datetime <= end_date + timedelta(days=1),
@@ -663,7 +625,7 @@ def hr_candidates(
         sort_key = "newest"
     page_number = max(1, int(page or 1))
 
-    candidates = _candidate_summaries(db, current_user.user_id)
+    candidates = _candidate_summaries(db)
     if job_id:
         candidates = [item for item in candidates if int(item.get("job", {}).get("id") or 0) == int(job_id)]
     filtered = []
@@ -742,7 +704,7 @@ def hr_all_applications(
     current_user: SessionUser = Depends(require_role("hr")),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    scoped_results = _candidate_result_scope(db, current_user.user_id).order_by(Result.id.desc()).all()
+    scoped_results = _candidate_result_scope(db).order_by(Result.id.desc()).all()
 
     applications = []
     for result in scoped_results:
@@ -806,7 +768,7 @@ def hr_candidate_detail(
 
     # Get all results for this candidate that belong to THIS HR's JDs
     results = (
-        _candidate_result_scope(db, current_user.user_id)
+        _candidate_result_scope(db)
         .filter(Result.candidate_id == candidate.id)
         .order_by(Result.id.desc())
         .all()
@@ -972,7 +934,7 @@ def hr_candidates_batch_details(
     results_by_candidate = {}
     for candidate in candidates:
         results = (
-            _candidate_result_scope(db, current_user.user_id)
+            _candidate_result_scope(db)
             .filter(Result.candidate_id == candidate.id)
             .order_by(Result.id.desc())
             .all()
@@ -1038,11 +1000,7 @@ def hr_assign_candidate_to_jd(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    job = (
-        db.query(JobDescription)
-        .filter(JobDescription.id == payload.jd_id, JobDescription.company_id == current_user.user_id)
-        .first()
-    )
+    job = db.query(JobDescription).filter(JobDescription.id == payload.jd_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="JD not found")
 
@@ -1072,7 +1030,7 @@ def hr_update_candidate_notes(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     result = (
-        _candidate_result_scope(db, current_user.user_id)
+        _candidate_result_scope(db)
         .filter(Result.id == result_id)
         .first()
     )
@@ -1093,7 +1051,7 @@ def hr_update_candidate_stage(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     result = (
-        _candidate_result_scope(db, current_user.user_id)
+        _candidate_result_scope(db)
         .filter(Result.id == result_id)
         .first()
     )
@@ -1125,7 +1083,7 @@ def hr_compare_candidates(
 ) -> dict[str, object]:
     result_ids = [int(value) for value in payload.result_ids[:10]]
     results = (
-        _candidate_result_scope(db, current_user.user_id)
+        _candidate_result_scope(db)
         .filter(Result.id.in_(result_ids))
         .all()
     )
@@ -1186,14 +1144,10 @@ def hr_candidate_skill_gap(
     # 3) How it works: uses the requested HR-owned job when present, otherwise falls back to the latest HR-owned application.
     target_job: JobDescription | None = None
     if job_id is not None:
-        target_job = (
-            db.query(JobDescription)
-            .filter(JobDescription.id == job_id, JobDescription.company_id == current_user.user_id)
-            .first()
-        )
+        target_job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
     else:
         latest_result = (
-            _candidate_result_scope(db, current_user.user_id)
+            _candidate_result_scope(db)
             .filter(Result.candidate_id == candidate.id)
             .order_by(Result.id.desc())
             .first()
@@ -1243,76 +1197,8 @@ def hr_delete_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    # Check if candidate has any results owned by THIS HR
-    owned_results = (
-        db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
-        .filter(Result.candidate_id == candidate.id, JobDescription.company_id == current_user.user_id)
-        .count()
-    )
-    if not owned_results:
-        raise HTTPException(status_code=404, detail="Candidate not found for this HR")
-
-    # Check if candidate has results for OTHER HR companies - if yes, just unlink from this HR
-    foreign_results = (
-        db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
-        .filter(Result.candidate_id == candidate.id, JobDescription.company_id != current_user.user_id)
-        .count()
-    )
-    
-    try:
-        # If there are foreign results, just delete OUR results (not the candidate)
-        # If no foreign results, delete the candidate entirely
-        if foreign_results > 0:
-            # Delete only results belonging to this HR
-            results_to_delete = (
-                db.query(Result)
-                .join(JobDescription, Result.job_id == JobDescription.id)
-                .filter(Result.candidate_id == candidate.id, JobDescription.company_id == current_user.user_id)
-                .all()
-            )
-            for result in results_to_delete:
-                db.delete(result)
-            message = "Applications deleted for this HR"
-        else:
-            # Safe to delete candidate - will cascade delete results and sessions
-            safe_delete_upload(candidate.resume_path)
-            db.delete(candidate)
-            message = "Candidate deleted"
-        
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        import logging
-        logging.getLogger("uvicorn").error(f"[DELETE] Failed to delete candidate {candidate_uid}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error during deletion: {str(e)}")
-
-    return JSONResponse(
-        content={"ok": True, "message": message, "candidate_uid": candidate_uid},
-        status_code=200,
-    )
-    if not owned_results:
-        raise HTTPException(status_code=404, detail="Candidate not found for this HR")
-
-    foreign_results = (
-        db.query(Result)
-        .join(JobDescription, Result.job_id == JobDescription.id)
-        .filter(Result.candidate_id == candidate.id, JobDescription.company_id != current_user.user_id)
-        .count()
-    )
-    if foreign_results:
-        raise HTTPException(
-            status_code=400,
-            detail="Candidate has applications with another company and cannot be deleted from this HR panel.",
-        )
-
     try:
         safe_delete_upload(candidate.resume_path)
-
-        # 1) What this does: leverages SQLAlchemy cascades defined in models.py.
-        # 2) Why needed: automatically handles nested dependencies like answers and history.
-        # 3) How it works: deleting the candidate now triggers cascade delete on Results and Sessions.
         db.delete(candidate)
         db.commit()
     except Exception as e:
@@ -1476,7 +1362,6 @@ def confirm_jd(
         normalized_scores[key] = int(weight)
 
     job = JobDescription(
-        company_id=current_user.user_id,
         title=temp_jd.get("jd_title") or "Untitled Role",
         jd_title=temp_jd.get("jd_title") or "Untitled Role",
         jd_text=temp_jd["jd_path"],
@@ -1529,18 +1414,9 @@ def update_skill_weights(
 
     target_job = None
     if requested_job_id:
-        target_job = (
-            db.query(JobDescription)
-            .filter(JobDescription.company_id == current_user.user_id, JobDescription.id == requested_job_id)
-            .first()
-        )
+        target_job = db.query(JobDescription).filter(JobDescription.id == requested_job_id).first()
     if not target_job:
-        target_job = (
-            db.query(JobDescription)
-            .filter(JobDescription.company_id == current_user.user_id)
-            .order_by(JobDescription.id.desc())
-            .first()
-        )
+        target_job = db.query(JobDescription).order_by(JobDescription.id.desc()).first()
     if not target_job:
         raise HTTPException(status_code=404, detail="No JD found")
     if not incoming_skill_scores:
@@ -1605,7 +1481,7 @@ def hr_interview_score(
         raise HTTPException(status_code=404, detail="Result not found")
 
     job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
-    if not job or job.company_id != current_user.user_id:
+    if not job:
         raise HTTPException(status_code=403, detail="Not allowed to score this result")
 
     explanation = result.explanation or {}
@@ -1640,7 +1516,7 @@ def hr_export_interview_pdf(
         raise HTTPException(status_code=404, detail="Result not found")
 
     job = db.query(JobDescription).filter(JobDescription.id == result.job_id).first()
-    if not job or job.company_id != current_user.user_id:
+    if not job:
         raise HTTPException(status_code=403, detail="Not authorized to export this report")
 
     if session.status != "completed":
